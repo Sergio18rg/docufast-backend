@@ -1,0 +1,31 @@
+@baseUrl = http://localhost:4000
+@contentType = application/json
+
+### Health check
+GET {{baseUrl}}/api/health
+
+###
+
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: {{contentType}}
+
+{
+  "email": "admin@docufast.com",
+  "password": "Admin1234!"
+}
+
+###
+
+GET {{baseUrl}}/api/auth/profile
+Authorization: Bearer {{login.response.body.data.token}}
+
+###
+
+GET {{baseUrl}}/api/auth/admin-only
+Authorization: Bearer {{login.response.body.data.token}}
+
+###
+
+GET {{baseUrl}}/api/auth/internal
+Authorization: Bearer {{login.response.body.data.token}}
