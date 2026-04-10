@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { loginUser } from "./auth.service";
+import { loginUser } from "./service";
 import { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 
 const login = async (req: Request, res: Response) => {

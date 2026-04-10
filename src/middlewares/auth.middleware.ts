@@ -1,7 +1,8 @@
 import { NextFunction, Request, Response } from "express";
 import { verifyToken } from "../lib/jwt";
+import { HTTP_STATUS } from "../constants";
 
-export interface AuthenticatedRequest extends Request {
+interface AuthenticatedRequest extends Request {
   user?: {
     user_id: number;
     email: string;
@@ -18,7 +19,7 @@ const authenticate = (
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
         success: false,
         message: "Authorization token required",
       });
@@ -36,7 +37,7 @@ const authenticate = (
 
     next();
   } catch (e) {
-    return res.status(401).json({
+    return res.status(HTTP_STATUS.UNAUTHORIZED).json({
       success: false,
       message: "No valid or expired token",
     });
@@ -44,3 +45,4 @@ const authenticate = (
 };
 
 export { authenticate };
+export type { AuthenticatedRequest };

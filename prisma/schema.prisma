@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -32,5 +27,129 @@ model User {
   role_id Int
   role    Role @relation(fields: [role_id], references: [role_id])
 
+  worker Worker?
+
   @@map("users")
+}
+
+model Client {
+  client_id     Int      @id @default(autoincrement())
+  business_name String   @unique
+  contact_email String?
+  contact_phone String?
+  badge_color   String   @default("#94a3b8")
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  workers       Worker[]
+
+  @@map("clients")
+}
+
+model Vehicle {
+  vehicle_id    Int      @id @default(autoincrement())
+  license_plate String   @unique
+  vehicle_type  String
+  status        String   @default("Active")
+  notes         String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  workers       Worker[]
+
+  @@map("vehicles")
+}
+
+model Worker {
+  worker_id               Int       @id @default(autoincrement())
+  company_worker_code     String    @unique
+  first_name              String
+  last_name_1             String
+  last_name_2             String?
+  email                   String?   @unique
+  phone                   String?
+  document_number         String?
+  social_security_number  String?
+  birth_date              DateTime?
+  address                 String?
+  emergency_contact_name  String?
+  emergency_contact_phone String?
+  contract_start_date     DateTime?
+  contract_end_date       DateTime?
+  status                  String    @default("Active")
+  notes                   String?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+
+  client_id          Int?
+  current_vehicle_id Int?
+  user_id            Int? @unique
+
+  client          Client?  @relation(fields: [client_id], references: [client_id])
+  current_vehicle Vehicle? @relation(fields: [current_vehicle_id], references: [vehicle_id])
+  user            User?    @relation(fields: [user_id], references: [user_id])
+
+  @@index([client_id])
+  @@index([current_vehicle_id])
+  @@map("workers")
+}
+
+model DocumentType {
+  document_type_id       Int        @id @default(autoincrement())
+  key                    String
+  name                   String
+  entity_type            String
+  is_additional          Boolean    @default(false)
+  default_security_level String     @default("Private")
+  is_required            Boolean    @default(false)
+  display_order          Int        @default(0)
+  status                 String     @default("Active")
+  created_at             DateTime   @default(now())
+  updated_at             DateTime   @updatedAt
+  documents              Document[]
+
+  @@unique([entity_type, key])
+  @@map("document_types")
+}
+
+model Document {
+  document_id       Int       @id @default(autoincrement())
+  document_type_id  Int
+  document_key      String
+  display_name      String
+  original_filename String?
+  stored_filename   String?
+  file_path         String?
+  mime_type         String?
+  file_size         Int?
+  issue_date        DateTime?
+  expiration_date   DateTime?
+  upload_date       DateTime  @default(now())
+  notes             String?
+  security_level    String    @default("Private")
+  status            String    @default("Active")
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  document_type    DocumentType     @relation(fields: [document_type_id], references: [document_type_id])
+  entity_documents EntityDocument[]
+
+  @@index([document_type_id])
+  @@index([document_key])
+  @@map("documents")
+}
+
+model EntityDocument {
+  entity_document_id Int      @id @default(autoincrement())
+  document_id        Int
+  entity_type        String
+  entity_id          Int
+  status             String   @default("Active")
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  document Document @relation(fields: [document_id], references: [document_id])
+
+  @@index([entity_type, entity_id])
+  @@index([entity_type, entity_id, status])
+  @@map("entity_documents")
 }
