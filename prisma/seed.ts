@@ -93,9 +93,27 @@ const main = async () => {
   }
 
   const vehicles = [
-    { license_plate: "1234ABC", vehicle_type: "Dry" },
-    { license_plate: "5678DEF", vehicle_type: "Reefer" },
-    { license_plate: "9012GHI", vehicle_type: "Truck" },
+    {
+      license_plate: "1234ABC",
+      vehicle_type: "Dry",
+      company_owner: "Rumofast",
+      contract_start_date: new Date("2025-01-01"),
+      contract_end_date: new Date("2026-01-01"),
+    },
+    {
+      license_plate: "5678DEF",
+      vehicle_type: "Reefer",
+      company_owner: "SixT",
+      contract_start_date: new Date("2025-02-01"),
+      contract_end_date: new Date("2026-02-01"),
+    },
+    {
+      license_plate: "9012GHI",
+      vehicle_type: "Truck",
+      company_owner: "DFM",
+      contract_start_date: new Date("2025-03-01"),
+      contract_end_date: new Date("2026-03-01"),
+    },
   ];
 
   for (const vehicle of vehicles) {
@@ -194,6 +212,20 @@ const main = async () => {
       contract_start_date: new Date("2025-01-10"),
       contract_end_date: new Date("2026-12-31"),
       notes: "Seed worker for CAT3.",
+    },
+  });
+
+  await prisma.workerVehicleAssignment.updateMany({
+    where: { worker_id: worker.worker_id },
+    data: { status: "Inactive", end_datetime: new Date() },
+  });
+
+  await prisma.workerVehicleAssignment.create({
+    data: {
+      worker_id: worker.worker_id,
+      vehicle_id: dryVehicle.vehicle_id,
+      start_datetime: new Date("2025-01-10"),
+      status: "Active",
     },
   });
 

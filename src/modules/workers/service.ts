@@ -14,7 +14,7 @@ import { trim, trimOptional, toValidDate } from "../../utils";
 import { STATUS } from "../../constants";
 import { SortOrder } from "../../generated/prisma/internal/prismaNamespace";
 
-// What is included when fetching workers from the database 
+// What is included when fetching workers from the database
 // (we also send the client and current vehicle data)
 const workerInclude = {
   client: true,
@@ -219,6 +219,61 @@ const getWorkerById = async (workerId: number) => {
   return attachDocumentsToWorker(worker, documentMap.get(workerId) ?? []);
 };
 
+const sanitizeCurrentVehicleId = async (
+  vehicleId: number | null | undefined,
+) => {
+  if (!vehicleId) return null;
+  const vehicle = await prisma.vehicle.findUnique({
+    where: { vehicle_id: vehicleId },
+  });
+  const isActive = vehicle?.status === STATUS.ACTIVE;
+  if (!vehicle || !isActive) return null;
+  return vehicleId;
+};
+
+const syncVehicleAssignment = async (
+  tx: Prisma.TransactionClient,
+  workerId: number,
+  nextVehicleId: number | null,
+) => {
+  const activeAssignments = await tx.workerVehicleAssignment.findMany({
+    where: { worker_id: workerId, status: STATUS.ACTIVE },
+    orderBy: [{ start_datetime: SortOrder.desc }],
+  });
+
+  for (const assignment of activeAssignments) {
+    const shouldClose =
+      !nextVehicleId || assignment.vehicle_id !== nextVehicleId;
+    if (shouldClose) {
+      await tx.workerVehicleAssignment.update({
+        where: {
+          worker_vehicle_assignment_id: assignment.worker_vehicle_assignment_id,
+        },
+        data: { status: STATUS.INACTIVE, end_datetime: new Date() },
+      });
+    }
+  }
+
+  if (!nextVehicleId) return;
+
+  const stillActive = activeAssignments.find(
+    (assignment) =>
+      assignment.vehicle_id === nextVehicleId &&
+      assignment.status === STATUS.ACTIVE,
+  );
+
+  if (!stillActive) {
+    await tx.workerVehicleAssignment.create({
+      data: {
+        worker_id: workerId,
+        vehicle_id: nextVehicleId,
+        start_datetime: new Date(),
+        status: STATUS.ACTIVE,
+      },
+    });
+  }
+};
+
 const syncWorkerDocuments = async (
   tx: Prisma.TransactionClient,
   workerId: number,
@@ -348,6 +403,10 @@ const createWorker = async (payload: WorkerPayload) => {
     documents,
   } = payload;
 
+  const safeCurrentVehicleId = await sanitizeCurrentVehicleId(
+    current_vehicle_id ?? null,
+  );
+
   const worker = await prisma.worker.create({
     data: {
       company_worker_code: trim(company_worker_code),
@@ -367,13 +426,16 @@ const createWorker = async (payload: WorkerPayload) => {
       status: trimOptional(status) ?? STATUS.ACTIVE,
       notes: trimOptional(notes),
       client_id: client_id ?? null,
-      current_vehicle_id: current_vehicle_id ?? null,
+      current_vehicle_id: safeCurrentVehicleId,
     },
   });
 
   const docs = documents ?? [];
 
-  await syncWorkerDocuments(prisma, worker.worker_id, docs);
+  await prisma.$transaction(async (tx) => {
+    await syncVehicleAssignment(tx, worker.worker_id, safeCurrentVehicleId);
+    await syncWorkerDocuments(tx, worker.worker_id, docs);
+  });
   return getWorkerById(worker.worker_id);
 };
 
@@ -400,6 +462,10 @@ const updateWorker = async (workerId: number, payload: WorkerPayload) => {
     documents,
   } = payload;
 
+  const safeCurrentVehicleId = await sanitizeCurrentVehicleId(
+    current_vehicle_id ?? null,
+  );
+
   await prisma.$transaction(async (tx) => {
     await tx.worker.update({
       where: { worker_id: workerId },
@@ -421,21 +487,29 @@ const updateWorker = async (workerId: number, payload: WorkerPayload) => {
         status: trimOptional(status) ?? STATUS.ACTIVE,
         notes: trimOptional(notes),
         client_id: client_id ?? null,
-        current_vehicle_id: current_vehicle_id ?? null,
+        current_vehicle_id: safeCurrentVehicleId,
       },
     });
 
     const docs = documents ?? [];
 
+    await syncVehicleAssignment(tx, workerId, safeCurrentVehicleId);
     await syncWorkerDocuments(tx, workerId, docs);
   });
   return getWorkerById(workerId);
 };
 
 const deactivateWorker = async (workerId: number) =>
-  prisma.worker.update({
-    where: { worker_id: workerId },
-    data: { status: STATUS.INACTIVE },
+  prisma.$transaction(async (tx) => {
+    await tx.worker.update({
+      where: { worker_id: workerId },
+      data: { status: STATUS.INACTIVE, current_vehicle_id: null },
+    });
+
+    await tx.workerVehicleAssignment.updateMany({
+      where: { worker_id: workerId, status: STATUS.ACTIVE },
+      data: { status: STATUS.INACTIVE, end_datetime: new Date() },
+    });
   });
 
 const uploadDocumentFile = async ({

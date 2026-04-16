@@ -13,6 +13,7 @@ import { sendError, sendSuccess } from "../../utils/http";
 import { MESSAGES } from "./constants";
 import { HTTP_STATUS } from "../../constants";
 import { WorkerPayload } from "./types";
+import { getErrorMessage } from "../../utils";
 
 const upload = multer({ storage: multer.memoryStorage() });
 export const workerDocumentUploadMiddleware = upload.single("file");
@@ -77,11 +78,10 @@ const createWorkerHandler = async (req: Request, res: Response) => {
       HTTP_STATUS.CREATED,
     );
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : MESSAGES.ERROR.WORKER_CREATION_FAILED;
-
+    const message = getErrorMessage(
+      error,
+      MESSAGES.ERROR.WORKER_CREATION_FAILED,
+    );
     const isUniqueConstraintError = message.includes("Unique constraint");
     const status = isUniqueConstraintError
       ? HTTP_STATUS.CONFLICT
@@ -114,10 +114,7 @@ const updateWorkerHandler = async (req: Request, res: Response) => {
     const worker = await updateWorker(workerId, payload);
     return sendSuccess(res, worker, MESSAGES.SUCCESS.WORKER_UPDATED);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : MESSAGES.ERROR.WORKER_UPDATE_FAILED;
+    const message = getErrorMessage(error, MESSAGES.ERROR.WORKER_UPDATE_FAILED);
     const isUniqueConstraintError = message.includes("Unique constraint");
     const status = isUniqueConstraintError
       ? HTTP_STATUS.CONFLICT
@@ -192,10 +189,10 @@ const uploadWorkerDocumentHandler = async (req: Request, res: Response) => {
     const worker = await getWorkerById(workerId);
     return sendSuccess(res, worker, MESSAGES.SUCCESS.DOCUMENT_UPLOADED);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : MESSAGES.ERROR.DOCUMENT_UPLOAD_FAILED;
+    const message = getErrorMessage(
+      error,
+      MESSAGES.ERROR.DOCUMENT_UPLOAD_FAILED,
+    );
     return sendError(res, message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
@@ -214,10 +211,10 @@ const removeWorkerDocumentHandler = async (req: Request, res: Response) => {
 
     return sendSuccess(res, worker, MESSAGES.SUCCESS.DOCUMENT_REMOVED);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : MESSAGES.ERROR.DOCUMENT_REMOVAL_FAILED;
+    const message = getErrorMessage(
+      error,
+      MESSAGES.ERROR.DOCUMENT_REMOVAL_FAILED,
+    );
     return sendError(res, message, HTTP_STATUS.BAD_REQUEST);
   }
 };

@@ -47,14 +47,18 @@ model Client {
 }
 
 model Vehicle {
-  vehicle_id    Int      @id @default(autoincrement())
-  license_plate String   @unique
-  vehicle_type  String
-  status        String   @default("Active")
-  notes         String?
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
-  workers       Worker[]
+  vehicle_id          Int                       @id @default(autoincrement())
+  license_plate       String                    @unique
+  vehicle_type        String
+  company_owner       String                    @default("Rumofast")
+  contract_start_date DateTime?
+  contract_end_date   DateTime?
+  status              String                    @default("Active")
+  notes               String?
+  created_at          DateTime                  @default(now())
+  updated_at          DateTime                  @updatedAt
+  workers             Worker[]
+  worker_assignments  WorkerVehicleAssignment[]
 
   @@map("vehicles")
 }
@@ -84,13 +88,32 @@ model Worker {
   current_vehicle_id Int?
   user_id            Int? @unique
 
-  client          Client?  @relation(fields: [client_id], references: [client_id])
-  current_vehicle Vehicle? @relation(fields: [current_vehicle_id], references: [vehicle_id])
-  user            User?    @relation(fields: [user_id], references: [user_id])
+  client              Client?                   @relation(fields: [client_id], references: [client_id])
+  current_vehicle     Vehicle?                  @relation(fields: [current_vehicle_id], references: [vehicle_id])
+  user                User?                     @relation(fields: [user_id], references: [user_id])
+  vehicle_assignments WorkerVehicleAssignment[]
 
   @@index([client_id])
   @@index([current_vehicle_id])
   @@map("workers")
+}
+
+model WorkerVehicleAssignment {
+  worker_vehicle_assignment_id Int       @id @default(autoincrement())
+  worker_id                    Int
+  vehicle_id                   Int
+  start_datetime               DateTime  @default(now())
+  end_datetime                 DateTime?
+  status                       String    @default("Active")
+  created_at                   DateTime  @default(now())
+  updated_at                   DateTime  @updatedAt
+
+  worker  Worker  @relation(fields: [worker_id], references: [worker_id])
+  vehicle Vehicle @relation(fields: [vehicle_id], references: [vehicle_id])
+
+  @@index([worker_id, status])
+  @@index([vehicle_id, status])
+  @@map("worker_vehicle_assignments")
 }
 
 model DocumentType {
@@ -107,7 +130,7 @@ model DocumentType {
   updated_at             DateTime   @updatedAt
   documents              Document[]
 
-  @@unique([entity_type, key])
+  @@unique([entity_type, key], name: "entity_type_key")
   @@map("document_types")
 }
 
