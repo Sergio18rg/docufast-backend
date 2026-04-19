@@ -1,6 +1,9 @@
 import { Router } from "express";
-import { authenticate } from "../../middlewares/auth.middleware";
-import { authorize } from "../../middlewares/role.middleware";
+import {
+  authenticate,
+  ensurePasswordChanged,
+  authorize,
+} from "../../middlewares";
 import { ROLES } from "../../constants";
 import {
   createVehicleHandler,
@@ -15,7 +18,7 @@ import {
 } from "./controller";
 
 const router = Router();
-router.use(authenticate);
+router.use(authenticate, ensurePasswordChanged);
 
 router.get("/", authorize([ROLES.ADMIN, ROLES.EXTERNAL]), getVehicles);
 router.get("/:vehicleId", authorize([ROLES.ADMIN, ROLES.EXTERNAL]), getVehicle);

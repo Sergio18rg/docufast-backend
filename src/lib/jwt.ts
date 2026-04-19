@@ -4,7 +4,10 @@ type JwtPayload = {
   user_id: number;
   email: string;
   role: string;
+  must_change_password?: boolean;
 };
+
+const EXPIRATION_TIME = "1d";
 
 const getJwtSecret = (): string => {
   const secret = process.env.JWT_SECRET;
@@ -14,7 +17,7 @@ const getJwtSecret = (): string => {
 
 const generateToken = (payload: JwtPayload) => {
   return jwt.sign(payload, getJwtSecret(), {
-    expiresIn: "1d",
+    expiresIn: EXPIRATION_TIME,
   });
 };
 

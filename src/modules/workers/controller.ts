@@ -8,27 +8,30 @@ import {
   updateWorker,
   uploadDocumentFile,
   removeWorkerDocument,
+  restoreWorker,
 } from "./service";
 import { sendError, sendSuccess } from "../../utils/http";
 import { MESSAGES } from "./constants";
 import { HTTP_STATUS } from "../../constants";
 import { WorkerPayload } from "./types";
-import { getErrorMessage } from "../../utils";
+import { getErrorMessage, trimOptional } from "../../utils";
 
 const upload = multer({ storage: multer.memoryStorage() });
 export const workerDocumentUploadMiddleware = upload.single("file");
 
 const validateWorkerPayload = (payload: WorkerPayload) => {
-  const { company_worker_code, first_name, last_name_1 } = payload;
+  const { company_worker_code, first_name, last_name_1, email } = payload;
 
-  const isWorkerCodeMissing = !company_worker_code?.trim();
+  const isWorkerCodeMissing = !trimOptional(company_worker_code);
   if (isWorkerCodeMissing) return MESSAGES.REQUIRED.COMPANY_CODE;
 
-  const isFirstNameMissing = !first_name?.trim();
+  const isFirstNameMissing = !trimOptional(first_name);
   if (isFirstNameMissing) return MESSAGES.REQUIRED.NAME;
 
-  const isLastNameMissing = !last_name_1?.trim();
+  const isLastNameMissing = !trimOptional(last_name_1);
   if (isLastNameMissing) return MESSAGES.REQUIRED.FIRST_SURNAME;
+  const isEmailMissing = !trimOptional(email);
+  if (isEmailMissing) return MESSAGES.REQUIRED.EMAIL;
   return null;
 };
 
@@ -145,6 +148,29 @@ const deleteWorkerHandler = async (req: Request, res: Response) => {
   }
 };
 
+const restoreWorkerHandler = async (req: Request, res: Response) => {
+  try {
+    const workerId = Number(req.params.workerId);
+    const isWorkerIdInvalid = Number.isNaN(workerId);
+    if (isWorkerIdInvalid)
+      return sendError(res, MESSAGES.REQUIRED.ID, HTTP_STATUS.BAD_REQUEST);
+
+    const existingWorker = await getWorkerById(workerId);
+    if (!existingWorker)
+      return sendError(
+        res,
+        MESSAGES.ERROR.WORKER_NOT_FOUND,
+        HTTP_STATUS.NOT_FOUND,
+      );
+
+    await restoreWorker(workerId);
+    const worker = await getWorkerById(workerId);
+    return sendSuccess(res, worker, MESSAGES.SUCCESS.WORKER_RESTORED);
+  } catch {
+    return sendError(res, MESSAGES.ERROR.WORKER_UPDATE_FAILED);
+  }
+};
+
 const uploadWorkerDocumentHandler = async (req: Request, res: Response) => {
   try {
     const workerId = Number(req.params.workerId);
@@ -227,4 +253,5 @@ export {
   deleteWorkerHandler,
   uploadWorkerDocumentHandler,
   removeWorkerDocumentHandler,
+  restoreWorkerHandler,
 };

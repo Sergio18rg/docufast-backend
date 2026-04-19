@@ -1,12 +1,14 @@
 import { NextFunction, Request, Response } from "express";
 import { verifyToken } from "../lib/jwt";
 import { HTTP_STATUS } from "../constants";
+import { MESSAGES } from "../modules/auth/constants";
 
 interface AuthenticatedRequest extends Request {
   user?: {
     user_id: number;
     email: string;
     role: string;
+    must_change_password: boolean;
   };
 }
 
@@ -18,10 +20,11 @@ const authenticate = (
   try {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    const invalidAuthHeader = !authHeader || !authHeader.startsWith("Bearer ");
+    if (invalidAuthHeader) {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json({
         success: false,
-        message: "Authorization token required",
+        message: MESSAGES.ERROR.NO_VALID_TOKEN,
       });
     }
 
@@ -31,18 +34,37 @@ const authenticate = (
       user_id: number;
       email: string;
       role: string;
+      must_change_password?: boolean;
     };
 
-    req.user = decoded;
+    req.user = {
+      ...decoded,
+      must_change_password: !!decoded.must_change_password,
+    };
 
     next();
-  } catch (e) {
+  } catch {
     return res.status(HTTP_STATUS.UNAUTHORIZED).json({
       success: false,
-      message: "No valid or expired token",
+      message: MESSAGES.ERROR.NO_VALID_TOKEN,
     });
   }
 };
 
-export { authenticate };
+const ensurePasswordChanged = (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  const userMustChangePassword = req.user?.must_change_password;
+  if (userMustChangePassword)
+    return res.status(HTTP_STATUS.FORBIDDEN).json({
+      success: false,
+      message: MESSAGES.ERROR.CHANGE_PASSWORD_REQUIRED,
+    });
+
+  next();
+};
+
+export { authenticate, ensurePasswordChanged };
 export type { AuthenticatedRequest };

@@ -14,7 +14,7 @@ type WorkerPayload = {
   first_name: string;
   last_name_1: string;
   last_name_2?: string | null;
-  email?: string | null;
+  email: string;
   phone?: string | null;
   document_number?: string | null;
   social_security_number?: string | null;

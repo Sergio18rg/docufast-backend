@@ -71,6 +71,7 @@ const MESSAGES = {
     COMPANY_CODE: "Company worker code is required",
     NAME: "First name is required",
     FIRST_SURNAME: "First surname is required",
+    EMAIL: "Email is required",
     FILE: "A file is required",
     ID: "Invalid ID",
   },
@@ -78,6 +79,7 @@ const MESSAGES = {
     WORKER_CREATED: "Worker created successfully",
     WORKER_UPDATED: "Worker updated successfully",
     WORKER_DELETED: "Worker marked as inactive successfully",
+    WORKER_RESTORED: "Worker restored successfully",
     WORKERS_FETCHED: "Workers fetched successfully",
     WORKER_FETCHED: "Worker fetched successfully",
     DOCUMENT_UPLOADED: "Document uploaded successfully",
@@ -92,6 +94,7 @@ const MESSAGES = {
     DOCUMENT_UPLOAD_FAILED: "Unable to upload document",
     DOCUMENT_REMOVAL_FAILED: "Unable to remove document",
     WORKER_NOT_FOUND: "Worker not found",
+    WORKER_ROLE_NOT_FOUND: "Worker role not found",
   },
 };
 

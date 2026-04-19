@@ -38,6 +38,7 @@ const main = async () => {
       password_hash: adminPasswordHash,
       full_name: "System Administrator",
       role_id: adminRole.role_id,
+      must_change_password: false,
     },
   });
 
@@ -49,6 +50,7 @@ const main = async () => {
       password_hash: workerPasswordHash,
       full_name: "Test Worker",
       role_id: workerRole.role_id,
+      must_change_password: false,
     },
   });
 
@@ -60,6 +62,7 @@ const main = async () => {
       password_hash: externalPasswordHash,
       full_name: "External Client User",
       role_id: externalRole.role_id,
+      must_change_password: false,
     },
   });
 

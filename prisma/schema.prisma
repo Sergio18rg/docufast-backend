@@ -16,13 +16,14 @@ model Role {
 }
 
 model User {
-  user_id       Int      @id @default(autoincrement())
-  email         String   @unique
-  password_hash String
-  full_name     String
-  status        String   @default("Active")
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  user_id              Int      @id @default(autoincrement())
+  email                String   @unique
+  password_hash        String
+  full_name            String
+  status               String   @default("Active")
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+  must_change_password Boolean  @default(false)
 
   role_id Int
   role    Role @relation(fields: [role_id], references: [role_id])

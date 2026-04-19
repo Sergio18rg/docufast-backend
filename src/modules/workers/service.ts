@@ -1,17 +1,19 @@
 import path from "node:path";
 import fs from "node:fs/promises";
+import bcrypt from "bcrypt";
 import { prisma } from "../../lib/prisma";
 import { Prisma } from "../../generated/prisma/client";
 import {
   ADDITIONAL_WORKER_DOCUMENT,
   DEFAULT_SECURITY_LEVEL,
+  MESSAGES,
   PREDEFINED_WORKER_DOCUMENTS,
   WORKER_ENTITY_TYPE,
 } from "./constants";
 import { WorkerDocumentInput, WorkerPayload } from "./types";
 import { getDocumentStatus } from "./utils";
 import { trim, trimOptional, toValidDate } from "../../utils";
-import { STATUS } from "../../constants";
+import { ROLES, STATUS } from "../../constants";
 import { SortOrder } from "../../generated/prisma/internal/prismaNamespace";
 
 // What is included when fetching workers from the database
@@ -19,6 +21,93 @@ import { SortOrder } from "../../generated/prisma/internal/prismaNamespace";
 const workerInclude = {
   client: true,
   current_vehicle: true,
+};
+
+const getWorkerFullName = ({
+  firstName,
+  lastName1,
+  lastName2,
+}: {
+  firstName: string;
+  lastName1: string;
+  lastName2?: string | null;
+}) =>
+  [trim(firstName), trim(lastName1), trimOptional(lastName2)]
+    .filter(Boolean)
+    .join(" ");
+
+const buildTemporaryPassword = ({
+  firstName,
+  companyWorkerCode,
+}: {
+  firstName: string;
+  companyWorkerCode: string;
+}) => `${trim(firstName)}${trim(companyWorkerCode)}`;
+
+const getWorkerRoleId = async () => {
+  const role = await prisma.role.findUnique({ where: { name: ROLES.WORKER } });
+  if (!role) throw new Error(MESSAGES.ERROR.WORKER_ROLE_NOT_FOUND);
+  return role.role_id;
+};
+
+const syncWorkerUser = async ({
+  tx,
+  workerId,
+  userId,
+  email,
+  firstName,
+  lastName1,
+  lastName2,
+  status,
+  companyWorkerCode,
+}: {
+  tx: Prisma.TransactionClient;
+  workerId: number;
+  userId?: number | null;
+  email: string;
+  firstName: string;
+  lastName1: string;
+  lastName2?: string | null;
+  status: string;
+  companyWorkerCode: string;
+}) => {
+  const normalizedEmail = trim(email).toLowerCase();
+  const fullName = getWorkerFullName({ firstName, lastName1, lastName2 });
+
+  if (userId) {
+    return tx.user.update({
+      where: { user_id: userId },
+      data: {
+        email: normalizedEmail,
+        full_name: fullName,
+        status,
+      },
+    });
+  }
+
+  const password_hash = await bcrypt.hash(
+    buildTemporaryPassword({ firstName, companyWorkerCode }),
+    10,
+  );
+  const roleId = await getWorkerRoleId();
+
+  const createdUser = await tx.user.create({
+    data: {
+      email: normalizedEmail,
+      password_hash,
+      full_name: fullName,
+      status,
+      must_change_password: true,
+      role_id: roleId,
+    },
+  });
+
+  await tx.worker.update({
+    where: { worker_id: workerId },
+    data: { user_id: createdUser.user_id },
+  });
+
+  return createdUser;
 };
 
 const ensureWorkerDocumentType = async ({
@@ -403,8 +492,9 @@ const createWorker = async (payload: WorkerPayload) => {
     documents,
   } = payload;
 
+  const normalizedStatus = trimOptional(status) ?? STATUS.ACTIVE;
   const safeCurrentVehicleId = await sanitizeCurrentVehicleId(
-    current_vehicle_id ?? null,
+    normalizedStatus === STATUS.INACTIVE ? null : (current_vehicle_id ?? null),
   );
 
   const worker = await prisma.worker.create({
@@ -413,7 +503,7 @@ const createWorker = async (payload: WorkerPayload) => {
       first_name: trim(first_name),
       last_name_1: trim(last_name_1),
       last_name_2: trimOptional(last_name_2),
-      email: trimOptional(email),
+      email: trim(email)?.toLowerCase(),
       phone: trimOptional(phone),
       document_number: trimOptional(document_number),
       social_security_number: trimOptional(social_security_number),
@@ -423,9 +513,10 @@ const createWorker = async (payload: WorkerPayload) => {
       emergency_contact_phone: trimOptional(emergency_contact_phone),
       contract_start_date: toValidDate(contract_start_date),
       contract_end_date: toValidDate(contract_end_date),
-      status: trimOptional(status) ?? STATUS.ACTIVE,
+      status: normalizedStatus,
       notes: trimOptional(notes),
-      client_id: client_id ?? null,
+      client_id:
+        normalizedStatus === STATUS.INACTIVE ? null : (client_id ?? null),
       current_vehicle_id: safeCurrentVehicleId,
     },
   });
@@ -433,6 +524,16 @@ const createWorker = async (payload: WorkerPayload) => {
   const docs = documents ?? [];
 
   await prisma.$transaction(async (tx) => {
+    await syncWorkerUser({
+      tx,
+      workerId: worker.worker_id,
+      email: email,
+      firstName: first_name,
+      lastName1: last_name_1,
+      lastName2: last_name_2,
+      status: normalizedStatus,
+      companyWorkerCode: company_worker_code,
+    });
     await syncVehicleAssignment(tx, worker.worker_id, safeCurrentVehicleId);
     await syncWorkerDocuments(tx, worker.worker_id, docs);
   });
@@ -462,8 +563,15 @@ const updateWorker = async (workerId: number, payload: WorkerPayload) => {
     documents,
   } = payload;
 
+  const existingWorker = await prisma.worker.findUnique({
+    where: { worker_id: workerId },
+    select: { user_id: true },
+  });
+  if (!existingWorker) throw new Error(MESSAGES.ERROR.WORKER_NOT_FOUND);
+
+  const normalizedStatus = trimOptional(status) ?? STATUS.ACTIVE;
   const safeCurrentVehicleId = await sanitizeCurrentVehicleId(
-    current_vehicle_id ?? null,
+    normalizedStatus === STATUS.INACTIVE ? null : (current_vehicle_id ?? null),
   );
 
   await prisma.$transaction(async (tx) => {
@@ -474,7 +582,7 @@ const updateWorker = async (workerId: number, payload: WorkerPayload) => {
         first_name: trim(first_name),
         last_name_1: trim(last_name_1),
         last_name_2: trimOptional(last_name_2),
-        email: trimOptional(email),
+        email: trimOptional(email)?.toLowerCase(),
         phone: trimOptional(phone),
         document_number: trimOptional(document_number),
         social_security_number: trimOptional(social_security_number),
@@ -484,15 +592,27 @@ const updateWorker = async (workerId: number, payload: WorkerPayload) => {
         emergency_contact_phone: trimOptional(emergency_contact_phone),
         contract_start_date: toValidDate(contract_start_date),
         contract_end_date: toValidDate(contract_end_date),
-        status: trimOptional(status) ?? STATUS.ACTIVE,
+        status: normalizedStatus,
         notes: trimOptional(notes),
-        client_id: client_id ?? null,
+        client_id:
+          normalizedStatus === STATUS.INACTIVE ? null : (client_id ?? null),
         current_vehicle_id: safeCurrentVehicleId,
       },
     });
 
-    const docs = documents ?? [];
+    await syncWorkerUser({
+      tx,
+      workerId,
+      userId: existingWorker.user_id,
+      email: email,
+      firstName: first_name,
+      lastName1: last_name_1,
+      lastName2: last_name_2,
+      status: normalizedStatus,
+      companyWorkerCode: company_worker_code,
+    });
 
+    const docs = documents ?? [];
     await syncVehicleAssignment(tx, workerId, safeCurrentVehicleId);
     await syncWorkerDocuments(tx, workerId, docs);
   });
@@ -501,15 +621,51 @@ const updateWorker = async (workerId: number, payload: WorkerPayload) => {
 
 const deactivateWorker = async (workerId: number) =>
   prisma.$transaction(async (tx) => {
+    const worker = await tx.worker.findUnique({
+      where: { worker_id: workerId },
+      select: { user_id: true },
+    });
+
     await tx.worker.update({
       where: { worker_id: workerId },
-      data: { status: STATUS.INACTIVE, current_vehicle_id: null },
+      data: {
+        status: STATUS.INACTIVE,
+        current_vehicle_id: null,
+        client_id: null,
+      },
     });
+
+    if (worker?.user_id) {
+      await tx.user.update({
+        where: { user_id: worker.user_id },
+        data: { status: STATUS.INACTIVE },
+      });
+    }
 
     await tx.workerVehicleAssignment.updateMany({
       where: { worker_id: workerId, status: STATUS.ACTIVE },
       data: { status: STATUS.INACTIVE, end_datetime: new Date() },
     });
+  });
+
+const restoreWorker = async (workerId: number) =>
+  prisma.$transaction(async (tx) => {
+    const worker = await tx.worker.findUnique({
+      where: { worker_id: workerId },
+      select: { user_id: true },
+    });
+
+    await tx.worker.update({
+      where: { worker_id: workerId },
+      data: { status: STATUS.ACTIVE },
+    });
+
+    if (worker?.user_id) {
+      await tx.user.update({
+        where: { user_id: worker.user_id },
+        data: { status: STATUS.ACTIVE },
+      });
+    }
   });
 
 const uploadDocumentFile = async ({
@@ -680,6 +836,7 @@ export {
   createWorker,
   updateWorker,
   deactivateWorker,
+  restoreWorker,
   uploadDocumentFile,
   removeWorkerDocument,
 };
