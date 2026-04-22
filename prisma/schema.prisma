@@ -29,21 +29,29 @@ model User {
   role    Role @relation(fields: [role_id], references: [role_id])
 
   worker Worker?
+  client Client?
 
   @@map("users")
 }
 
 model Client {
-  client_id     Int      @id @default(autoincrement())
-  business_name String   @unique
-  contact_email String?
-  contact_phone String?
-  badge_color   String   @default("#94a3b8")
-  is_active     Boolean  @default(true)
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
-  workers       Worker[]
+  client_id           Int       @id @default(autoincrement())
+  client_code         String    @unique
+  business_name       String
+  contact_email       String?   @unique
+  contact_phone       String?
+  badge_color         String    @default("#94a3b8")
+  contract_start_date DateTime?
+  contract_end_date   DateTime?
+  status              String    @default("Active")
+  notes               String?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  user_id             Int?      @unique
+  workers             Worker[]
+  user                User?     @relation(fields: [user_id], references: [user_id])
 
+  @@unique([business_name, status])
   @@map("clients")
 }
 

@@ -8,6 +8,11 @@ import {
   WORKER_ENTITY_TYPE,
 } from "../src/modules/workers/constants";
 import { getDocumentStatus } from "../src/modules/workers/utils";
+import {
+  PREDEFINED_CLIENT_DOCUMENTS,
+  ADDITIONAL_CLIENT_DOCUMENT,
+  CLIENT_ENTITY_TYPE,
+} from "../src/modules/clients/constants";
 
 const main = async () => {
   const adminRole = await prisma.role.upsert({
@@ -68,28 +73,40 @@ const main = async () => {
 
   const clients = [
     {
+      client_code: "CL-0001",
       business_name: "FedEx",
       badge_color: "#7c3aed",
       contact_email: "ops@fedex-demo.com",
       contact_phone: "+34 600 111 222",
+      contract_start_date: new Date("2025-01-01"),
+      contract_end_date: new Date("2026-01-01"),
+      status: "Active",
     },
     {
+      client_code: "CL-0002",
       business_name: "Seur",
       badge_color: "#2563eb",
       contact_email: "ops@seur-demo.com",
       contact_phone: "+34 600 111 333",
+      contract_start_date: new Date("2025-01-01"),
+      contract_end_date: new Date("2026-01-01"),
+      status: "Active",
     },
     {
+      client_code: "CL-0003",
       business_name: "Redur",
       badge_color: "#dc2626",
       contact_email: "ops@redur-demo.com",
       contact_phone: "+34 600 111 444",
+      contract_start_date: new Date("2025-01-01"),
+      contract_end_date: new Date("2026-01-01"),
+      status: "Active",
     },
   ];
 
   for (const client of clients) {
     await prisma.client.upsert({
-      where: { business_name: client.business_name },
+      where: { client_code: client.client_code },
       update: client,
       create: client,
     });
@@ -166,8 +183,47 @@ const main = async () => {
     });
   }
 
+  const clientDocumentTypes = [
+    ...PREDEFINED_CLIENT_DOCUMENTS,
+    ADDITIONAL_CLIENT_DOCUMENT,
+  ];
+  for (const definition of clientDocumentTypes) {
+    await prisma.documentType.upsert({
+      where: {
+        entity_type_key: {
+          entity_type: CLIENT_ENTITY_TYPE,
+          key: definition.key,
+        },
+      },
+      update: {
+        name: definition.name,
+        is_additional:
+          "isAdditional" in definition ? definition.isAdditional : false,
+        default_security_level: definition.defaultSecurityLevel,
+        is_required: !("isAdditional" in definition
+          ? definition.isAdditional
+          : false),
+        display_order: definition.displayOrder,
+        status: "Active",
+      },
+      create: {
+        key: definition.key,
+        name: definition.name,
+        entity_type: CLIENT_ENTITY_TYPE,
+        is_additional:
+          "isAdditional" in definition ? definition.isAdditional : false,
+        default_security_level: definition.defaultSecurityLevel,
+        is_required: !("isAdditional" in definition
+          ? definition.isAdditional
+          : false),
+        display_order: definition.displayOrder,
+        status: "Active",
+      },
+    });
+  }
+
   const fedexClient = await prisma.client.findUniqueOrThrow({
-    where: { business_name: "FedEx" },
+    where: { client_code: "CL-0001" },
   });
   const dryVehicle = await prisma.vehicle.findUniqueOrThrow({
     where: { license_plate: "1234ABC" },

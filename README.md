@@ -116,6 +116,10 @@ Generate Prisma client:
 Seed database:
 - npm run seed
 
+Reset if needed:
+- npx prisma migrate reset
+
+
 ---
 
 ### Run backend
