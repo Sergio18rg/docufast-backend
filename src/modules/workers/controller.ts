@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { AuthenticatedRequest } from "../../middlewares/auth.middleware";
 import multer from "multer";
 import {
   createWorker,
@@ -35,16 +36,16 @@ const validateWorkerPayload = (payload: WorkerPayload) => {
   return null;
 };
 
-const getWorkers = async (_req: Request, res: Response) => {
+const getWorkers = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const workers = await listWorkers();
+    const workers = await listWorkers(req.user);
     return sendSuccess(res, workers, MESSAGES.SUCCESS.WORKERS_FETCHED);
   } catch {
     return sendError(res, MESSAGES.ERROR.WORKERS_FETCH_FAILED);
   }
 };
 
-const getWorker = async (req: Request, res: Response) => {
+const getWorker = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const workerId = Number(req.params.workerId);
 
@@ -52,7 +53,7 @@ const getWorker = async (req: Request, res: Response) => {
     if (isWorkerIdInvalid)
       return sendError(res, MESSAGES.REQUIRED.ID, HTTP_STATUS.BAD_REQUEST);
 
-    const worker = await getWorkerById(workerId);
+    const worker = await getWorkerById(workerId, req.user);
     if (!worker)
       return sendError(
         res,
@@ -148,7 +149,10 @@ const deleteWorkerHandler = async (req: Request, res: Response) => {
   }
 };
 
-const restoreWorkerHandler = async (req: Request, res: Response) => {
+const restoreWorkerHandler = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
   try {
     const workerId = Number(req.params.workerId);
     const isWorkerIdInvalid = Number.isNaN(workerId);
@@ -164,14 +168,17 @@ const restoreWorkerHandler = async (req: Request, res: Response) => {
       );
 
     await restoreWorker(workerId);
-    const worker = await getWorkerById(workerId);
+    const worker = await getWorkerById(workerId, req.user);
     return sendSuccess(res, worker, MESSAGES.SUCCESS.WORKER_RESTORED);
   } catch {
     return sendError(res, MESSAGES.ERROR.WORKER_UPDATE_FAILED);
   }
 };
 
-const uploadWorkerDocumentHandler = async (req: Request, res: Response) => {
+const uploadWorkerDocumentHandler = async (
+  req: AuthenticatedRequest & { file?: Express.Multer.File },
+  res: Response,
+) => {
   try {
     const workerId = Number(req.params.workerId);
     const isWorkerIdInvalid = Number.isNaN(workerId);
@@ -212,7 +219,7 @@ const uploadWorkerDocumentHandler = async (req: Request, res: Response) => {
       isPredefined: isPredefined === "true",
     });
 
-    const worker = await getWorkerById(workerId);
+    const worker = await getWorkerById(workerId, req.user);
     return sendSuccess(res, worker, MESSAGES.SUCCESS.DOCUMENT_UPLOADED);
   } catch (error) {
     const message = getErrorMessage(
@@ -223,7 +230,10 @@ const uploadWorkerDocumentHandler = async (req: Request, res: Response) => {
   }
 };
 
-const removeWorkerDocumentHandler = async (req: Request, res: Response) => {
+const removeWorkerDocumentHandler = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
   try {
     const workerId = Number(req.params.workerId);
     const workerDocumentId = Number(req.params.workerDocumentId);
@@ -233,7 +243,7 @@ const removeWorkerDocumentHandler = async (req: Request, res: Response) => {
       return sendError(res, MESSAGES.REQUIRED.ID, HTTP_STATUS.BAD_REQUEST);
 
     await removeWorkerDocument(workerId, workerDocumentId);
-    const worker = await getWorkerById(workerId);
+    const worker = await getWorkerById(workerId, req.user);
 
     return sendSuccess(res, worker, MESSAGES.SUCCESS.DOCUMENT_REMOVED);
   } catch (error) {

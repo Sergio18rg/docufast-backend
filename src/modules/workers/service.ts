@@ -11,7 +11,14 @@ import {
   WORKER_ENTITY_TYPE,
 } from "./constants";
 import { WorkerDocumentInput, WorkerPayload } from "./types";
-import { getDocumentStatus } from "./utils";
+import {
+  getDocumentStatus,
+  getWorkerFullName,
+  buildTemporaryPassword,
+  filterExternalWorkerDocuments,
+  toExternalClientsWorkerDtos,
+  buildDocumentDto,
+} from "./utils";
 import { trim, trimOptional, toValidDate } from "../../utils";
 import { ROLES, STATUS } from "../../constants";
 import { SortOrder } from "../../generated/prisma/internal/prismaNamespace";
@@ -22,27 +29,6 @@ const workerInclude = {
   client: true,
   current_vehicle: true,
 };
-
-const getWorkerFullName = ({
-  firstName,
-  lastName1,
-  lastName2,
-}: {
-  firstName: string;
-  lastName1: string;
-  lastName2?: string | null;
-}) =>
-  [trim(firstName), trim(lastName1), trimOptional(lastName2)]
-    .filter(Boolean)
-    .join(" ");
-
-const buildTemporaryPassword = ({
-  firstName,
-  companyWorkerCode,
-}: {
-  firstName: string;
-  companyWorkerCode: string;
-}) => `${trim(firstName)}${trim(companyWorkerCode)}`;
 
 const getWorkerRoleId = async () => {
   const role = await prisma.role.findUnique({ where: { name: ROLES.WORKER } });
@@ -154,54 +140,6 @@ const ensureWorkerDocumentType = async ({
   });
 };
 
-const buildDocumentDto = (entityDocument: any) => {
-  const {
-    entity_document_id,
-    status: entityStatus,
-    created_at,
-    updated_at,
-    document: {
-      document_id,
-      document_key,
-      display_name,
-      file_path,
-      original_filename,
-      mime_type,
-      security_level,
-      status: documentStatus,
-      issue_date,
-      expiration_date,
-      notes,
-      document_type: { is_additional },
-    },
-  } = entityDocument;
-
-  const isPredefined = !is_additional;
-
-  return {
-    worker_document_id: entity_document_id,
-    document_id: document_id,
-    document_key: document_key,
-    document_name: display_name,
-    is_predefined: isPredefined,
-    is_active:
-      entityStatus === STATUS.ACTIVE && documentStatus !== STATUS.INACTIVE,
-    file_url: file_path,
-    file_name: original_filename,
-    mime_type: mime_type,
-    security_level: security_level,
-    status:
-      entityStatus !== STATUS.ACTIVE || documentStatus === STATUS.INACTIVE
-        ? STATUS.INACTIVE
-        : getDocumentStatus(!!file_path, expiration_date),
-    issue_date: issue_date,
-    expiration_date: expiration_date,
-    notes: notes,
-    created_at: created_at,
-    updated_at: updated_at,
-  };
-};
-
 const getWorkerDocumentsByWorkerId = async (workerIds: number[]) => {
   const documentsByWorkerId = new Map<number, any[]>();
 
@@ -233,6 +171,7 @@ const getWorkerDocumentsByWorkerId = async (workerIds: number[]) => {
 const attachDocumentsToWorker = <T extends Record<string, any>>(
   worker: T | null,
   workerDocuments: any[] = [],
+  options: { includePlaceholders?: boolean } = {},
 ) => {
   if (!worker) return null;
 
@@ -240,6 +179,14 @@ const attachDocumentsToWorker = <T extends Record<string, any>>(
   for (const document of workerDocuments) {
     const notExists = !documentsByKey.has(document.document_key);
     if (notExists) documentsByKey.set(document.document_key, document);
+  }
+
+  const includePlaceholders = options.includePlaceholders ?? true;
+  if (!includePlaceholders) {
+    return {
+      ...worker,
+      documents: workerDocuments,
+    };
   }
 
   // If predefined documents are not uploaded, we still add them as not uploaded, so the frontend can show them and allow uploading
@@ -282,8 +229,50 @@ const attachDocumentsToWorker = <T extends Record<string, any>>(
   };
 };
 
-const listWorkers = async () => {
+const buildWorkerResponse = (
+  worker: any,
+  documents: any[],
+  options: { isExternal: boolean; includePlaceholders: boolean },
+) => {
+  const { isExternal, includePlaceholders } = options;
+  const visibleDocuments = isExternal
+    ? filterExternalWorkerDocuments(documents)
+    : documents;
+  const workerWithDocuments = attachDocumentsToWorker(worker, visibleDocuments, {
+    includePlaceholders,
+  });
+  return isExternal
+    ? toExternalClientsWorkerDtos(workerWithDocuments)
+    : workerWithDocuments;
+};
+
+const getExternalClientByUserId = async (userId: number) =>
+  prisma.client.findFirst({
+    where: { user_id: userId },
+    select: { client_id: true, status: true },
+  });
+
+const listWorkers = async (requestUser?: { user_id: number; role: string }) => {
+  const isExternal = requestUser?.role === ROLES.EXTERNAL;
+
+  let where: Prisma.WorkerWhereInput | undefined = undefined;
+  let includePlaceholders = true;
+
+  if (isExternal && requestUser) {
+    const client = await getExternalClientByUserId(requestUser.user_id);
+    const isClientUnavailable = !client || client.status !== STATUS.ACTIVE;
+
+    if (isClientUnavailable) return [];
+
+    where = {
+      client_id: client.client_id,
+      status: STATUS.ACTIVE,
+    };
+    includePlaceholders = false;
+  }
+
   const workers = await prisma.worker.findMany({
+    where,
     include: workerInclude,
     orderBy: [{ created_at: SortOrder.desc }, { worker_id: SortOrder.desc }],
   });
@@ -292,20 +281,52 @@ const listWorkers = async () => {
 
   const documentMap = await getWorkerDocumentsByWorkerId(workerIds);
 
-  return workers.map((worker) =>
-    attachDocumentsToWorker(worker, documentMap.get(worker.worker_id) ?? []),
-  );
+  return workers.map((worker) => {
+    const documents = documentMap.get(worker.worker_id) ?? [];
+    return buildWorkerResponse(worker, documents, {
+      isExternal,
+      includePlaceholders,
+    });
+  });
 };
 
-const getWorkerById = async (workerId: number) => {
-  const worker = await prisma.worker.findUnique({
-    where: { worker_id: workerId },
+const getWorkerById = async (
+  workerId: number,
+  requestUser?: { user_id: number; role: string },
+) => {
+  const isExternal = requestUser?.role === ROLES.EXTERNAL;
+
+  let where: Prisma.WorkerWhereInput = { worker_id: workerId };
+  let includePlaceholders = true;
+
+  if (isExternal && requestUser) {
+    const client = await getExternalClientByUserId(requestUser.user_id);
+    const isClientUnavailable = !client || client.status !== STATUS.ACTIVE;
+
+    if (isClientUnavailable) return null;
+
+    where = {
+      worker_id: workerId,
+      client_id: client.client_id,
+      status: STATUS.ACTIVE,
+    };
+    includePlaceholders = false;
+  }
+
+  const worker = await prisma.worker.findFirst({
+    where,
     include: workerInclude,
   });
+
   const documentMap = await getWorkerDocumentsByWorkerId(
     worker ? [worker.worker_id] : [],
   );
-  return attachDocumentsToWorker(worker, documentMap.get(workerId) ?? []);
+
+  const documents = documentMap.get(workerId) ?? [];
+  return buildWorkerResponse(worker, documents, {
+    isExternal,
+    includePlaceholders,
+  });
 };
 
 const sanitizeCurrentVehicleId = async (
