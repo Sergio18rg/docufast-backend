@@ -1,3 +1,5 @@
+const FIFTEEN_DAYS_IN_MS = 15 * 24 * 60 * 60 * 1000;
+
 const MESSAGES = {
   ERROR: {
     REQUIRED_EMAIL_PASSWORD: "Email and password are required",
@@ -19,4 +21,4 @@ const MESSAGES = {
   },
 };
 
-export { MESSAGES };
+export { FIFTEEN_DAYS_IN_MS, MESSAGES };
