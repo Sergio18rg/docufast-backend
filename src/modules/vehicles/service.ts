@@ -3,15 +3,22 @@ import fs from "node:fs/promises";
 import { Prisma } from "../../generated/prisma/client";
 import { SortOrder } from "../../generated/prisma/internal/prismaNamespace";
 import { prisma } from "../../lib/prisma";
-import { STATUS } from "../../constants";
-import { trim, trimOptional, toValidDate } from "../../utils";
-import { getDocumentStatus } from "../workers/utils";
 import {
-  ADDITIONAL_VEHICLE_DOCUMENT,
+  STATUS,
   DEFAULT_SECURITY_LEVEL,
-  PREDEFINED_VEHICLE_DOCUMENTS,
-  VEHICLE_ENTITY_TYPE,
-} from "./constants";
+  ADDITIONAL_DOCUMENT_CONFIG,
+} from "../../constants";
+import {
+  trim,
+  trimOptional,
+  toValidDate,
+  getDocumentStatus,
+  ensureDocumentType,
+  buildGenericDocumentDto,
+  getDocumentsByEntityIds,
+  attachDocumentsToEntity,
+} from "../../utils";
+import { PREDEFINED_VEHICLE_DOCUMENTS, VEHICLE_ENTITY_TYPE } from "./constants";
 import { VehicleDocumentInput, VehiclePayload } from "./types";
 
 const vehicleInclude = {
@@ -22,140 +29,8 @@ const vehicleInclude = {
   },
 };
 
-const ensureVehicleDocumentType = async ({
-  documentKey,
-  documentName,
-  isPredefined,
-}: {
-  documentKey: string;
-  documentName: string;
-  isPredefined?: boolean;
-}) => {
-  const definition = isPredefined
-    ? PREDEFINED_VEHICLE_DOCUMENTS.find((item) => item.key === documentKey)
-    : ADDITIONAL_VEHICLE_DOCUMENT;
-
-  const key = definition?.key ?? documentKey;
-  const name = definition?.name ?? documentName;
-  const isAdditional = definition?.key === ADDITIONAL_VEHICLE_DOCUMENT.key;
-  const displayOrder = definition?.displayOrder ?? 999;
-  const defaultSecurityLevel =
-    definition?.defaultSecurityLevel ?? DEFAULT_SECURITY_LEVEL;
-
-  return prisma.documentType.upsert({
-    where: { entity_type_key: { entity_type: VEHICLE_ENTITY_TYPE, key } },
-    update: {
-      name,
-      is_additional: isAdditional,
-      default_security_level: defaultSecurityLevel,
-      is_required: !isAdditional,
-      display_order: displayOrder,
-      status: STATUS.ACTIVE,
-    },
-    create: {
-      key,
-      name,
-      entity_type: VEHICLE_ENTITY_TYPE,
-      is_additional: isAdditional,
-      default_security_level: defaultSecurityLevel,
-      is_required: !isAdditional,
-      display_order: displayOrder,
-      status: STATUS.ACTIVE,
-    },
-  });
-};
-
-const buildDocumentDto = (entityDocument: any) => {
-  const { entity_document_id, status: entityStatus, document } = entityDocument;
-  const isPredefined = !document.document_type.is_additional;
-  return {
-    vehicle_document_id: entity_document_id,
-    document_id: document.document_id,
-    document_key: document.document_key,
-    document_name: document.display_name,
-    is_predefined: isPredefined,
-    is_active:
-      entityStatus === STATUS.ACTIVE && document.status !== STATUS.INACTIVE,
-    file_url: document.file_path,
-    file_name: document.original_filename,
-    mime_type: document.mime_type,
-    security_level: document.security_level,
-    status:
-      entityStatus !== STATUS.ACTIVE || document.status === STATUS.INACTIVE
-        ? STATUS.INACTIVE
-        : getDocumentStatus(!!document.file_path, document.expiration_date),
-    issue_date: document.issue_date,
-    expiration_date: document.expiration_date,
-    notes: document.notes,
-  };
-};
-
-const getVehicleDocumentsByVehicleId = async (vehicleIds: number[]) => {
-  const map = new Map<number, any[]>();
-  if (!vehicleIds.length) return map;
-  const entityDocuments = await prisma.entityDocument.findMany({
-    where: {
-      entity_type: VEHICLE_ENTITY_TYPE,
-      entity_id: { in: vehicleIds },
-      status: STATUS.ACTIVE,
-      document: { status: { not: STATUS.INACTIVE } },
-    },
-    include: { document: { include: { document_type: true } } },
-    orderBy: [{ created_at: SortOrder.desc }],
-  });
-  for (const item of entityDocuments) {
-    const curr = map.get(item.entity_id) ?? [];
-    curr.push(buildDocumentDto(item));
-    map.set(item.entity_id, curr);
-  }
-  return map;
-};
-
-const attachDocumentsToVehicle = <T extends Record<string, any>>(
-  vehicle: T | null,
-  vehicleDocuments: any[] = [],
-) => {
-  if (!vehicle) return null;
-  const docsByKey = new Map<string, any>();
-
-  for (const document of vehicleDocuments) {
-    if (!docsByKey.has(document.document_key))
-      docsByKey.set(document.document_key, document);
-  }
-
-  const predefinedDocuments = PREDEFINED_VEHICLE_DOCUMENTS.map(
-    (definition) =>
-      docsByKey.get(definition.key) ?? {
-        vehicle_document_id: null,
-        document_id: null,
-        document_key: definition.key,
-        document_name: definition.name,
-        is_predefined: true,
-        is_active: true,
-        file_url: null,
-        file_name: null,
-        mime_type: null,
-        security_level: definition.defaultSecurityLevel,
-        status: STATUS.NOT_UPLOADED,
-        issue_date: new Date(),
-        expiration_date: new Date(),
-        notes: null,
-      },
-  );
-  const additionalDocuments = vehicleDocuments.filter(
-    (document) =>
-      !PREDEFINED_VEHICLE_DOCUMENTS.some(
-        (item) => item.key === document.document_key,
-      ),
-  );
-  return {
-    ...vehicle,
-    documents: [...predefinedDocuments, ...additionalDocuments],
-  };
-};
-
 const toVehicleDto = (vehicle: any, docs: any[] = []) =>
-  attachDocumentsToVehicle(
+  attachDocumentsToEntity(
     {
       ...vehicle,
       current_workers: (vehicle.worker_assignments ?? []).map(
@@ -166,6 +41,12 @@ const toVehicleDto = (vehicle: any, docs: any[] = []) =>
           full_name: `${assignment.worker.first_name} ${assignment.worker.last_name_1}`,
         }),
       ),
+      current_workers_count: (vehicle.worker_assignments ?? []).length,
+    },
+    {
+      predefinedDocuments: PREDEFINED_VEHICLE_DOCUMENTS,
+      includePlaceholders: true,
+      documentIdFieldName: "vehicle_document_id",
     },
     docs,
   );
@@ -176,7 +57,19 @@ const listVehicles = async () => {
     orderBy: [{ created_at: SortOrder.desc }, { vehicle_id: SortOrder.desc }],
   });
   const ids = vehicles.map((vehicle) => vehicle.vehicle_id);
-  const docsMap = await getVehicleDocumentsByVehicleId(ids);
+
+  const buildDocumentDto = (entityDocument: any) =>
+    buildGenericDocumentDto(
+      entityDocument,
+      "vehicle_document_id",
+      getDocumentStatus,
+    );
+
+  const docsMap = await getDocumentsByEntityIds(
+    VEHICLE_ENTITY_TYPE,
+    ids,
+    buildDocumentDto,
+  );
   return vehicles.map((vehicle) =>
     toVehicleDto(vehicle, docsMap.get(vehicle.vehicle_id) ?? []),
   );
@@ -187,8 +80,18 @@ const getVehicleById = async (vehicleId: number) => {
     where: { vehicle_id: vehicleId },
     include: vehicleInclude,
   });
-  const docsMap = await getVehicleDocumentsByVehicleId(
+
+  const buildDocumentDto = (entityDocument: any) =>
+    buildGenericDocumentDto(
+      entityDocument,
+      "vehicle_document_id",
+      getDocumentStatus,
+    );
+
+  const docsMap = await getDocumentsByEntityIds(
+    VEHICLE_ENTITY_TYPE,
     vehicle ? [vehicle.vehicle_id] : [],
+    buildDocumentDto,
   );
   return toVehicleDto(vehicle, docsMap.get(vehicleId) ?? []);
 };
@@ -219,12 +122,15 @@ const syncVehicleDocuments = async (
     const securityLevel =
       trimOptional(document.security_level) ?? DEFAULT_SECURITY_LEVEL;
     const isPredefined = !!document.is_predefined;
-    const documentType = await ensureVehicleDocumentType({
+    const documentType = await ensureDocumentType({
+      entityType: VEHICLE_ENTITY_TYPE,
       documentKey: isPredefined
         ? document.document_key
-        : ADDITIONAL_VEHICLE_DOCUMENT.key,
+        : ADDITIONAL_DOCUMENT_CONFIG.key,
       documentName: document.document_name,
       isPredefined,
+      predefinedDocuments: PREDEFINED_VEHICLE_DOCUMENTS,
+      additionalDocumentConfig: ADDITIONAL_DOCUMENT_CONFIG,
     });
 
     if (
@@ -393,10 +299,13 @@ const uploadVehicleDocumentFile = async ({
   const expiresAt = toValidDate(expirationDate) ?? new Date();
   const security = trimOptional(securityLevel) ?? DEFAULT_SECURITY_LEVEL;
 
-  const documentType = await ensureVehicleDocumentType({
-    documentKey: isPredefined ? documentKey : ADDITIONAL_VEHICLE_DOCUMENT.key,
+  const documentType = await ensureDocumentType({
+    entityType: VEHICLE_ENTITY_TYPE,
+    documentKey: isPredefined ? documentKey : ADDITIONAL_DOCUMENT_CONFIG.key,
     documentName,
     isPredefined,
+    predefinedDocuments: PREDEFINED_VEHICLE_DOCUMENTS,
+    additionalDocumentConfig: ADDITIONAL_DOCUMENT_CONFIG,
   });
 
   const existing = replaceDocumentId

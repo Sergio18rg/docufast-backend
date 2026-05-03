@@ -4,23 +4,33 @@ import bcrypt from "bcrypt";
 import { prisma } from "../../lib/prisma";
 import { Prisma } from "../../generated/prisma/client";
 import {
-  ADDITIONAL_WORKER_DOCUMENT,
-  DEFAULT_SECURITY_LEVEL,
   MESSAGES,
   PREDEFINED_WORKER_DOCUMENTS,
   WORKER_ENTITY_TYPE,
 } from "./constants";
 import { WorkerDocumentInput, WorkerPayload } from "./types";
 import {
-  getDocumentStatus,
   getWorkerFullName,
-  buildTemporaryPassword,
   filterExternalWorkerDocuments,
   toExternalClientsWorkerDtos,
-  buildDocumentDto,
+  buildTemporaryPassword,
 } from "./utils";
-import { trim, trimOptional, toValidDate } from "../../utils";
-import { ROLES, STATUS } from "../../constants";
+import {
+  trim,
+  trimOptional,
+  toValidDate,
+  getDocumentStatus,
+  ensureDocumentType,
+  buildGenericDocumentDto,
+  getDocumentsByEntityIds,
+  attachDocumentsToEntity,
+} from "../../utils";
+import {
+  ROLES,
+  STATUS,
+  DEFAULT_SECURITY_LEVEL,
+  ADDITIONAL_DOCUMENT_CONFIG,
+} from "../../constants";
 import { SortOrder } from "../../generated/prisma/internal/prismaNamespace";
 
 // What is included when fetching workers from the database
@@ -96,139 +106,6 @@ const syncWorkerUser = async ({
   return createdUser;
 };
 
-const ensureWorkerDocumentType = async ({
-  documentKey,
-  documentName,
-  isPredefined,
-}: {
-  documentKey: string;
-  documentName: string;
-  isPredefined?: boolean;
-}) => {
-  const definition = isPredefined
-    ? PREDEFINED_WORKER_DOCUMENTS.find((item) => item.key === documentKey)
-    : ADDITIONAL_WORKER_DOCUMENT;
-
-  const key = definition?.key ?? documentKey;
-  const name = definition?.name ?? documentName;
-  const isAdditional = definition?.key === ADDITIONAL_WORKER_DOCUMENT.key;
-  const displayOrder = definition?.displayOrder ?? 999;
-  const defaultSecurityLevel =
-    definition?.defaultSecurityLevel ?? DEFAULT_SECURITY_LEVEL;
-
-  // If exists, update, if not create
-  return prisma.documentType.upsert({
-    where: { entity_type_key: { entity_type: WORKER_ENTITY_TYPE, key } },
-    update: {
-      name,
-      is_additional: isAdditional,
-      default_security_level: defaultSecurityLevel,
-      is_required: !isAdditional,
-      display_order: displayOrder,
-      status: STATUS.ACTIVE,
-    },
-    create: {
-      key,
-      name,
-      entity_type: WORKER_ENTITY_TYPE,
-      is_additional: isAdditional,
-      default_security_level: defaultSecurityLevel,
-      is_required: !isAdditional,
-      display_order: displayOrder,
-      status: STATUS.ACTIVE,
-    },
-  });
-};
-
-const getWorkerDocumentsByWorkerId = async (workerIds: number[]) => {
-  const documentsByWorkerId = new Map<number, any[]>();
-
-  if (!workerIds.length) return documentsByWorkerId;
-
-  const entityDocuments = await prisma.entityDocument.findMany({
-    where: {
-      entity_type: WORKER_ENTITY_TYPE,
-      entity_id: { in: workerIds },
-      status: STATUS.ACTIVE,
-      document: { status: { not: STATUS.INACTIVE } },
-    },
-    include: {
-      document: {
-        include: { document_type: true },
-      },
-    },
-    orderBy: [{ created_at: SortOrder.desc }],
-  });
-
-  for (const item of entityDocuments) {
-    const current = documentsByWorkerId.get(item.entity_id) ?? [];
-    current.push(buildDocumentDto(item));
-    documentsByWorkerId.set(item.entity_id, current);
-  }
-  return documentsByWorkerId;
-};
-
-const attachDocumentsToWorker = <T extends Record<string, any>>(
-  worker: T | null,
-  workerDocuments: any[] = [],
-  options: { includePlaceholders?: boolean } = {},
-) => {
-  if (!worker) return null;
-
-  const documentsByKey = new Map<string, any>();
-  for (const document of workerDocuments) {
-    const notExists = !documentsByKey.has(document.document_key);
-    if (notExists) documentsByKey.set(document.document_key, document);
-  }
-
-  const includePlaceholders = options.includePlaceholders ?? true;
-  if (!includePlaceholders) {
-    return {
-      ...worker,
-      documents: workerDocuments,
-    };
-  }
-
-  // If predefined documents are not uploaded, we still add them as not uploaded, so the frontend can show them and allow uploading
-  const predefinedDocuments = PREDEFINED_WORKER_DOCUMENTS.map((definition) => {
-    const { key, name, defaultSecurityLevel } = definition;
-    const existing = documentsByKey.get(key);
-    if (existing) return existing;
-
-    const PLACEHOLDER_DOCUMENT = {
-      worker_document_id: null,
-      document_id: null,
-      document_key: key,
-      document_name: name,
-      is_predefined: true,
-      is_active: true,
-      file_url: null,
-      file_name: null,
-      mime_type: null,
-      security_level: defaultSecurityLevel,
-      status: STATUS.NOT_UPLOADED,
-      issue_date: new Date(),
-      expiration_date: new Date(),
-      notes: null,
-      created_at: null,
-      updated_at: null,
-    };
-    return PLACEHOLDER_DOCUMENT;
-  });
-
-  const additionalDocuments = workerDocuments.filter(
-    (document) =>
-      !PREDEFINED_WORKER_DOCUMENTS.some(
-        (item) => item.key === document.document_key,
-      ),
-  );
-
-  return {
-    ...worker,
-    documents: [...predefinedDocuments, ...additionalDocuments],
-  };
-};
-
 const buildWorkerResponse = (
   worker: any,
   documents: any[],
@@ -238,9 +115,15 @@ const buildWorkerResponse = (
   const visibleDocuments = isExternal
     ? filterExternalWorkerDocuments(documents)
     : documents;
-  const workerWithDocuments = attachDocumentsToWorker(worker, visibleDocuments, {
-    includePlaceholders,
-  });
+  const workerWithDocuments = attachDocumentsToEntity(
+    worker,
+    {
+      predefinedDocuments: PREDEFINED_WORKER_DOCUMENTS,
+      includePlaceholders,
+      documentIdFieldName: "worker_document_id",
+    },
+    visibleDocuments,
+  );
   return isExternal
     ? toExternalClientsWorkerDtos(workerWithDocuments)
     : workerWithDocuments;
@@ -279,7 +162,18 @@ const listWorkers = async (requestUser?: { user_id: number; role: string }) => {
 
   const workerIds = workers.map((worker) => worker.worker_id);
 
-  const documentMap = await getWorkerDocumentsByWorkerId(workerIds);
+  const buildDocumentDto = (entityDocument: any) =>
+    buildGenericDocumentDto(
+      entityDocument,
+      "worker_document_id",
+      getDocumentStatus,
+    );
+
+  const documentMap = await getDocumentsByEntityIds(
+    WORKER_ENTITY_TYPE,
+    workerIds,
+    buildDocumentDto,
+  );
 
   return workers.map((worker) => {
     const documents = documentMap.get(worker.worker_id) ?? [];
@@ -318,8 +212,17 @@ const getWorkerById = async (
     include: workerInclude,
   });
 
-  const documentMap = await getWorkerDocumentsByWorkerId(
+  const buildDocumentDto = (entityDocument: any) =>
+    buildGenericDocumentDto(
+      entityDocument,
+      "worker_document_id",
+      getDocumentStatus,
+    );
+
+  const documentMap = await getDocumentsByEntityIds(
+    WORKER_ENTITY_TYPE,
     worker ? [worker.worker_id] : [],
+    buildDocumentDto,
   );
 
   const documents = documentMap.get(workerId) ?? [];
@@ -411,12 +314,15 @@ const syncWorkerDocuments = async (
     const securityLevel =
       trimOptional(document.security_level) ?? DEFAULT_SECURITY_LEVEL;
     const isPredefined = !!document.is_predefined;
-    const documentType = await ensureWorkerDocumentType({
+    const documentType = await ensureDocumentType({
+      entityType: WORKER_ENTITY_TYPE,
       documentKey: isPredefined
         ? document.document_key
-        : ADDITIONAL_WORKER_DOCUMENT.key,
+        : ADDITIONAL_DOCUMENT_CONFIG.key,
       documentName: document.document_name,
       isPredefined,
+      predefinedDocuments: PREDEFINED_WORKER_DOCUMENTS,
+      additionalDocumentConfig: ADDITIONAL_DOCUMENT_CONFIG,
     });
 
     // If the document exists, we update it
@@ -732,10 +638,13 @@ const uploadDocumentFile = async ({
   const expiresAt = toValidDate(expirationDate) ?? new Date();
   const security = trimOptional(securityLevel) ?? DEFAULT_SECURITY_LEVEL;
 
-  const documentType = await ensureWorkerDocumentType({
-    documentKey: isPredefined ? documentKey : ADDITIONAL_WORKER_DOCUMENT.key,
+  const documentType = await ensureDocumentType({
+    entityType: WORKER_ENTITY_TYPE,
+    documentKey: isPredefined ? documentKey : ADDITIONAL_DOCUMENT_CONFIG.key,
     documentName,
     isPredefined,
+    predefinedDocuments: PREDEFINED_WORKER_DOCUMENTS,
+    additionalDocumentConfig: ADDITIONAL_DOCUMENT_CONFIG,
   });
 
   // if replaceDocumentId search the doc and update it, if not, search by document key,

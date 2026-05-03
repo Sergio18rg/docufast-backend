@@ -1,5 +1,5 @@
 import { STATUS } from "../../constants";
-import { FIFTEEN_DAYS_IN_MS } from "./constants";
+import { getDocumentStatus } from "../../utils";
 
 const mapUserResponse = (user: any) => ({
   user_id: user.user_id,
@@ -12,22 +12,6 @@ const mapUserResponse = (user: any) => ({
     name: user.role.name,
   },
 });
-
-const getDocumentStatus = (hasFile: boolean, expirationDate?: Date | null) => {
-  if (!hasFile) return "Not uploaded";
-  if (!expirationDate) return "Valid";
-
-  const now = new Date();
-  const expiresAt = new Date(expirationDate);
-
-  if (expiresAt.getTime() < now.getTime()) return "Expired";
-
-  if (expiresAt.getTime() - now.getTime() <= FIFTEEN_DAYS_IN_MS) {
-    return "Expiring soon";
-  }
-
-  return "Valid";
-};
 
 const buildProfileDocumentDto = (entityDocument: any) => {
   const {
@@ -75,4 +59,4 @@ const buildProfileDocumentDto = (entityDocument: any) => {
   };
 };
 
-export { mapUserResponse, getDocumentStatus, buildProfileDocumentDto };
+export { mapUserResponse, buildProfileDocumentDto };

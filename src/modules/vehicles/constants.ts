@@ -1,5 +1,6 @@
+import { DEFAULT_SECURITY_LEVEL } from "../../constants";
+
 const VEHICLE_ENTITY_TYPE = "Vehicle";
-const DEFAULT_SECURITY_LEVEL = "Private";
 
 const PREDEFINED_VEHICLE_DOCUMENTS = [
   {
@@ -40,14 +41,6 @@ const PREDEFINED_VEHICLE_DOCUMENTS = [
   },
 ];
 
-const ADDITIONAL_VEHICLE_DOCUMENT = {
-  key: "additional",
-  name: "Additional",
-  displayOrder: 999,
-  defaultSecurityLevel: DEFAULT_SECURITY_LEVEL,
-  isAdditional: true,
-};
-
 const MESSAGES = {
   FETCH_VEHICLES_SUCCESS: "Vehicles fetched successfully",
   FETCH_VEHICLES_ERROR: "Unable to fetch vehicles",
@@ -65,10 +58,4 @@ const MESSAGES = {
   VALIDATE_VEHICLE_TYPE: "Vehicle type is required",
 };
 
-export {
-  VEHICLE_ENTITY_TYPE,
-  DEFAULT_SECURITY_LEVEL,
-  PREDEFINED_VEHICLE_DOCUMENTS,
-  ADDITIONAL_VEHICLE_DOCUMENT,
-  MESSAGES,
-};
+export { VEHICLE_ENTITY_TYPE, PREDEFINED_VEHICLE_DOCUMENTS, MESSAGES };

@@ -1,3 +1,5 @@
+import { DOCUMENT_STATUS, FIFTEEN_DAYS_IN_MS } from "../constants";
+
 const trim = (value: string) => value.trim();
 
 const trimOptional = (value?: string | null) => {
@@ -16,4 +18,22 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
-export { trim, trimOptional, toValidDate, getErrorMessage };
+const getDocumentStatus = (hasFile: boolean, expirationDate?: Date | null) => {
+  if (!hasFile) return DOCUMENT_STATUS.NOT_UPLOADED;
+  if (!expirationDate) return DOCUMENT_STATUS.VALID;
+
+  const now = new Date();
+  const expiresAt = new Date(expirationDate);
+
+  const isExpired = expiresAt.getTime() < now.getTime();
+  if (isExpired) return DOCUMENT_STATUS.EXPIRED;
+
+  const expiresInLessThanFifteenDays =
+    expiresAt.getTime() - now.getTime() <= FIFTEEN_DAYS_IN_MS;
+
+  if (expiresInLessThanFifteenDays) return DOCUMENT_STATUS.EXPIRING_SOON;
+
+  return DOCUMENT_STATUS.VALID;
+};
+
+export { trim, trimOptional, toValidDate, getErrorMessage, getDocumentStatus };

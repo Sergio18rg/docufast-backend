@@ -1,27 +1,10 @@
-import { STATUS } from "../../constants";
-import { trim, trimOptional } from "../../utils";
-import { MESSAGES } from "./constants";
-
-const FIFTEEN_DAYS_IN_MS = 15 * 24 * 60 * 60 * 1000;
-
-const getDocumentStatus = (hasFile: boolean, expirationDate?: Date | null) => {
-  if (!hasFile) return MESSAGES.DOCUMENT_STATUS.NOT_UPLOADED;
-  if (!expirationDate) return MESSAGES.DOCUMENT_STATUS.VALID;
-
-  const now = new Date();
-  const expiresAt = new Date(expirationDate);
-
-  const isExpired = expiresAt.getTime() < now.getTime();
-  if (isExpired) return MESSAGES.DOCUMENT_STATUS.EXPIRED;
-
-  const expiresInLessThanFifteenDays =
-    expiresAt.getTime() - now.getTime() <= FIFTEEN_DAYS_IN_MS;
-
-  if (expiresInLessThanFifteenDays)
-    return MESSAGES.DOCUMENT_STATUS.EXPIRING_SOON;
-
-  return MESSAGES.DOCUMENT_STATUS.VALID;
-};
+import {
+  trim,
+  trimOptional,
+  getDocumentStatus,
+  buildTemporaryPassword as buildTempPassword,
+  buildGenericDocumentDto,
+} from "../../utils";
 
 const getWorkerFullName = ({
   firstName,
@@ -42,7 +25,7 @@ const buildTemporaryPassword = ({
 }: {
   firstName: string;
   companyWorkerCode: string;
-}) => `${trim(firstName)}${trim(companyWorkerCode)}`;
+}) => buildTempPassword([firstName, companyWorkerCode]);
 
 const filterExternalWorkerDocuments = (documents: any[] = []) =>
   documents.filter((document) => document.security_level === "External");
@@ -87,56 +70,14 @@ const toExternalClientsWorkerDtos = (worker: any) => {
   };
 };
 
-const buildDocumentDto = (entityDocument: any) => {
-  const {
-    entity_document_id,
-    status: entityStatus,
-    created_at,
-    updated_at,
-    document: {
-      document_id,
-      document_key,
-      display_name,
-      file_path,
-      original_filename,
-      mime_type,
-      security_level,
-      status: documentStatus,
-      issue_date,
-      expiration_date,
-      notes,
-      document_type: { is_additional },
-    },
-  } = entityDocument;
-
-  const isPredefined = !is_additional;
-
-  return {
-    worker_document_id: entity_document_id,
-    document_id: document_id,
-    document_key: document_key,
-    document_name: display_name,
-    is_predefined: isPredefined,
-    is_active:
-      entityStatus === STATUS.ACTIVE && documentStatus !== STATUS.INACTIVE,
-    file_url: file_path,
-    file_name: original_filename,
-    mime_type: mime_type,
-    security_level: security_level,
-    status:
-      entityStatus !== STATUS.ACTIVE || documentStatus === STATUS.INACTIVE
-        ? STATUS.INACTIVE
-        : getDocumentStatus(!!file_path, expiration_date),
-    issue_date: issue_date,
-    expiration_date: expiration_date,
-    notes: notes,
-    created_at: created_at,
-    updated_at: updated_at,
-  };
-};
+const buildDocumentDto = (entityDocument: any) =>
+  buildGenericDocumentDto(
+    entityDocument,
+    "worker_document_id",
+    getDocumentStatus,
+  );
 
 export {
-  getDocumentStatus,
   getWorkerFullName,
   buildTemporaryPassword,
   filterExternalWorkerDocuments,

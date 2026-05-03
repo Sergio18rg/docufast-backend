@@ -1,10 +1,10 @@
+import { DEFAULT_SECURITY_LEVEL } from "../../constants";
+
 const WORKER_ENTITY_TYPE = "Worker";
 
 const WORKER_STATUSES = ["Active", "Absence", "Inactive"];
 
 const SECURITY_LEVELS = ["Internal", "Private", "External"];
-
-const DEFAULT_SECURITY_LEVEL = "Private";
 
 const PREDEFINED_WORKER_DOCUMENTS = [
   {
@@ -45,14 +45,6 @@ const PREDEFINED_WORKER_DOCUMENTS = [
   },
 ];
 
-const ADDITIONAL_WORKER_DOCUMENT = {
-  key: "additional",
-  name: "Additional",
-  defaultSecurityLevel: DEFAULT_SECURITY_LEVEL,
-  displayOrder: 999,
-  isAdditional: true,
-};
-
 const VEHICLE_TYPE = {
   Dry: { label: "Dry", color: "#ced3db" },
   Reefer: { label: "Reefer", color: "#9be0e8" },
@@ -61,12 +53,6 @@ const VEHICLE_TYPE = {
 };
 
 const MESSAGES = {
-  DOCUMENT_STATUS: {
-    NOT_UPLOADED: "Not uploaded",
-    VALID: "Valid",
-    EXPIRED: "Expired",
-    EXPIRING_SOON: "Expiring soon",
-  },
   REQUIRED: {
     COMPANY_CODE: "Company worker code is required",
     NAME: "First name is required",
@@ -102,9 +88,7 @@ export {
   WORKER_STATUSES,
   SECURITY_LEVELS,
   PREDEFINED_WORKER_DOCUMENTS,
-  ADDITIONAL_WORKER_DOCUMENT,
   VEHICLE_TYPE,
   MESSAGES,
-  DEFAULT_SECURITY_LEVEL,
   WORKER_ENTITY_TYPE,
 };

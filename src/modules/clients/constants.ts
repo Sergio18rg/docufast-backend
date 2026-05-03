@@ -1,5 +1,6 @@
+import { DEFAULT_SECURITY_LEVEL } from "../../constants";
+
 const CLIENT_ENTITY_TYPE = "Client";
-const DEFAULT_SECURITY_LEVEL = "Private";
 
 const PREDEFINED_CLIENT_DOCUMENTS = [
   {
@@ -9,14 +10,6 @@ const PREDEFINED_CLIENT_DOCUMENTS = [
     defaultSecurityLevel: DEFAULT_SECURITY_LEVEL,
   },
 ];
-
-const ADDITIONAL_CLIENT_DOCUMENT = {
-  key: "additional",
-  name: "Additional",
-  isAdditional: true,
-  displayOrder: 999,
-  defaultSecurityLevel: DEFAULT_SECURITY_LEVEL,
-};
 
 const MESSAGES = {
   FETCH_CLIENTS_SUCCESS: "Clients fetched successfully",
@@ -39,10 +32,4 @@ const MESSAGES = {
   },
 };
 
-export {
-  CLIENT_ENTITY_TYPE,
-  DEFAULT_SECURITY_LEVEL,
-  PREDEFINED_CLIENT_DOCUMENTS,
-  ADDITIONAL_CLIENT_DOCUMENT,
-  MESSAGES,
-};
+export { CLIENT_ENTITY_TYPE, PREDEFINED_CLIENT_DOCUMENTS, MESSAGES };

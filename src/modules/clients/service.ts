@@ -4,13 +4,25 @@ import bcrypt from "bcrypt";
 import { prisma } from "../../lib/prisma";
 import { Prisma } from "../../generated/prisma/client";
 import { SortOrder } from "../../generated/prisma/internal/prismaNamespace";
-import { ROLES, STATUS } from "../../constants";
-import { trim, trimOptional, toValidDate } from "../../utils";
-import { getDocumentStatus } from "../workers/utils";
 import {
-  ADDITIONAL_CLIENT_DOCUMENT,
-  CLIENT_ENTITY_TYPE,
+  ROLES,
+  STATUS,
   DEFAULT_SECURITY_LEVEL,
+  ADDITIONAL_DOCUMENT_CONFIG,
+} from "../../constants";
+import {
+  trim,
+  trimOptional,
+  toValidDate,
+  getDocumentStatus,
+  ensureDocumentType,
+  buildGenericDocumentDto,
+  getDocumentsByEntityIds,
+  attachDocumentsToEntity,
+  buildTemporaryPassword as buildTempPassword,
+} from "../../utils";
+import {
+  CLIENT_ENTITY_TYPE,
   MESSAGES,
   PREDEFINED_CLIENT_DOCUMENTS,
 } from "./constants";
@@ -30,14 +42,6 @@ const getExternalRoleId = async () => {
   if (!role) throw new Error(MESSAGES.ERROR.EXTERNAL_ROLE_NOT_FOUND);
   return role.role_id;
 };
-
-const buildTemporaryPassword = ({
-  name,
-  clientCode,
-}: {
-  name: string;
-  clientCode: string;
-}) => `${trim(name)}${trim(clientCode)}`;
 
 const syncClientUser = async ({
   tx,
@@ -64,7 +68,7 @@ const syncClientUser = async ({
     });
   }
   const password_hash = await bcrypt.hash(
-    buildTemporaryPassword({ name: businessName, clientCode }),
+    buildTempPassword([businessName, clientCode]),
     10,
   );
   const roleId = await getExternalRoleId();
@@ -86,139 +90,8 @@ const syncClientUser = async ({
   return createdUser;
 };
 
-const ensureClientDocumentType = async ({
-  documentKey,
-  documentName,
-  isPredefined,
-}: {
-  documentKey: string;
-  documentName: string;
-  isPredefined?: boolean;
-}) => {
-  const definition = isPredefined
-    ? PREDEFINED_CLIENT_DOCUMENTS.find((item) => item.key === documentKey)
-    : ADDITIONAL_CLIENT_DOCUMENT;
-  const key = definition?.key ?? documentKey;
-  const name = definition?.name ?? documentName;
-  const isAdditional = definition?.key === ADDITIONAL_CLIENT_DOCUMENT.key;
-  const displayOrder = definition?.displayOrder ?? 999;
-  const defaultSecurityLevel =
-    definition?.defaultSecurityLevel ?? DEFAULT_SECURITY_LEVEL;
-
-  return prisma.documentType.upsert({
-    where: { entity_type_key: { entity_type: CLIENT_ENTITY_TYPE, key } },
-    update: {
-      name,
-      is_additional: isAdditional,
-      default_security_level: defaultSecurityLevel,
-      is_required: !isAdditional,
-      display_order: displayOrder,
-      status: STATUS.ACTIVE,
-    },
-    create: {
-      key,
-      name,
-      entity_type: CLIENT_ENTITY_TYPE,
-      is_additional: isAdditional,
-      default_security_level: defaultSecurityLevel,
-      is_required: !isAdditional,
-      display_order: displayOrder,
-      status: STATUS.ACTIVE,
-    },
-  });
-};
-
-const buildDocumentDto = (entityDocument: any) => {
-  const { entity_document_id, status: entityStatus, document } = entityDocument;
-  const isPredefined = !document.document_type.is_additional;
-
-  return {
-    client_document_id: entity_document_id,
-    document_id: document.document_id,
-    document_key: document.document_key,
-    document_name: document.display_name,
-    is_predefined: isPredefined,
-    is_active:
-      entityStatus === STATUS.ACTIVE && document.status !== STATUS.INACTIVE,
-    file_url: document.file_path,
-    file_name: document.original_filename,
-    mime_type: document.mime_type,
-    security_level: document.security_level,
-    status:
-      entityStatus !== STATUS.ACTIVE || document.status === STATUS.INACTIVE
-        ? STATUS.INACTIVE
-        : getDocumentStatus(!!document.file_path, document.expiration_date),
-    issue_date: document.issue_date,
-    expiration_date: document.expiration_date,
-    notes: document.notes,
-  };
-};
-
-const getClientDocumentsByIds = async (clientIds: number[]) => {
-  const map = new Map<number, any[]>();
-  if (!clientIds.length) return map;
-  const entityDocuments = await prisma.entityDocument.findMany({
-    where: {
-      entity_type: CLIENT_ENTITY_TYPE,
-      entity_id: { in: clientIds },
-      status: STATUS.ACTIVE,
-      document: { status: { not: STATUS.INACTIVE } },
-    },
-    include: { document: { include: { document_type: true } } },
-    orderBy: [{ created_at: SortOrder.desc }],
-  });
-
-  for (const item of entityDocuments) {
-    const curr = map.get(item.entity_id) ?? [];
-    curr.push(buildDocumentDto(item));
-    map.set(item.entity_id, curr);
-  }
-  return map;
-};
-
-const attachDocumentsToClient = <T extends Record<string, any>>(
-  client: T | null,
-  clientDocuments: any[] = [],
-) => {
-  if (!client) return null;
-  const docsByKey = new Map<string, any>();
-  for (const document of clientDocuments)
-    if (!docsByKey.has(document.document_key))
-      docsByKey.set(document.document_key, document);
-
-  const predefinedDocuments = PREDEFINED_CLIENT_DOCUMENTS.map(
-    (definition) =>
-      docsByKey.get(definition.key) ?? {
-        client_document_id: null,
-        document_id: null,
-        document_key: definition.key,
-        document_name: definition.name,
-        is_predefined: true,
-        is_active: true,
-        file_url: null,
-        file_name: null,
-        mime_type: null,
-        security_level: definition.defaultSecurityLevel,
-        status: STATUS.NOT_UPLOADED,
-        issue_date: new Date(),
-        expiration_date: new Date(),
-        notes: null,
-      },
-  );
-  const additionalDocuments = clientDocuments.filter(
-    (document) =>
-      !PREDEFINED_CLIENT_DOCUMENTS.some(
-        (item) => item.key === document.document_key,
-      ),
-  );
-  return {
-    ...client,
-    documents: [...predefinedDocuments, ...additionalDocuments],
-  };
-};
-
 const toClientDto = (client: any, docs: any[] = []) =>
-  attachDocumentsToClient(
+  attachDocumentsToEntity(
     {
       ...client,
       current_workers: (client.workers ?? []).map((worker: any) => ({
@@ -229,6 +102,11 @@ const toClientDto = (client: any, docs: any[] = []) =>
       })),
       current_workers_count: (client.workers ?? []).length,
     },
+    {
+      predefinedDocuments: PREDEFINED_CLIENT_DOCUMENTS,
+      includePlaceholders: true,
+      documentIdFieldName: "client_document_id",
+    },
     docs,
   );
 
@@ -238,7 +116,19 @@ const listClients = async () => {
     orderBy: [{ created_at: SortOrder.desc }, { client_id: SortOrder.desc }],
   });
   const ids = clients.map((client) => client.client_id);
-  const docsMap = await getClientDocumentsByIds(ids);
+
+  const buildDocumentDto = (entityDocument: any) =>
+    buildGenericDocumentDto(
+      entityDocument,
+      "client_document_id",
+      getDocumentStatus,
+    );
+
+  const docsMap = await getDocumentsByEntityIds(
+    CLIENT_ENTITY_TYPE,
+    ids,
+    buildDocumentDto,
+  );
 
   return clients.map((client) =>
     toClientDto(client, docsMap.get(client.client_id) ?? []),
@@ -251,8 +141,17 @@ const getClientById = async (clientId: number) => {
     include: clientInclude,
   });
 
-  const docsMap = await getClientDocumentsByIds(
+  const buildDocumentDto = (entityDocument: any) =>
+    buildGenericDocumentDto(
+      entityDocument,
+      "client_document_id",
+      getDocumentStatus,
+    );
+
+  const docsMap = await getDocumentsByEntityIds(
+    CLIENT_ENTITY_TYPE,
     client ? [client.client_id] : [],
+    buildDocumentDto,
   );
   return toClientDto(client, docsMap.get(clientId) ?? []);
 };
@@ -284,12 +183,15 @@ const syncClientDocuments = async (
     const securityLevel =
       trimOptional(document.security_level) ?? DEFAULT_SECURITY_LEVEL;
     const isPredefined = !!document.is_predefined;
-    const documentType = await ensureClientDocumentType({
+    const documentType = await ensureDocumentType({
+      entityType: CLIENT_ENTITY_TYPE,
       documentKey: isPredefined
         ? document.document_key
-        : ADDITIONAL_CLIENT_DOCUMENT.key,
+        : ADDITIONAL_DOCUMENT_CONFIG.key,
       documentName: document.document_name,
       isPredefined,
+      predefinedDocuments: PREDEFINED_CLIENT_DOCUMENTS,
+      additionalDocumentConfig: ADDITIONAL_DOCUMENT_CONFIG,
     });
 
     if (
@@ -497,10 +399,13 @@ const uploadClientDocumentFile = async ({
 
   const expiresAt = toValidDate(expirationDate) ?? new Date();
   const security = trimOptional(securityLevel) ?? DEFAULT_SECURITY_LEVEL;
-  const documentType = await ensureClientDocumentType({
-    documentKey: isPredefined ? documentKey : ADDITIONAL_CLIENT_DOCUMENT.key,
+  const documentType = await ensureDocumentType({
+    entityType: CLIENT_ENTITY_TYPE,
+    documentKey: isPredefined ? documentKey : ADDITIONAL_DOCUMENT_CONFIG.key,
     documentName,
     isPredefined,
+    predefinedDocuments: PREDEFINED_CLIENT_DOCUMENTS,
+    additionalDocumentConfig: ADDITIONAL_DOCUMENT_CONFIG,
   });
 
   const existing = replaceDocumentId
