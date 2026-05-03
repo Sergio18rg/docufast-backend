@@ -7,40 +7,54 @@ It handles authentication, authorization, data validation, and communication wit
 ---
 
 ## Technologies Used
-- Node.js
-- Express
+
+**Backend & Framework:**
+- Node.js (v24+)
+- Express.js
 - TypeScript
-- Prisma ORM
+
+**Database:**
 - PostgreSQL
-- JWT Authentication
-- bcrypt
-- dotenv
+- Prisma ORM
+
+**Authentication & Security:**
+- JWT (JSON Web Tokens)
+- bcrypt (password hashing)
+
+**AI Integration:**
+- Google Gemini API (document data extraction)
+
+**File Handling:**
+- Multer (multipart/form-data)
+
+**Development:**
+- dotenv (environment variables)
 
 ---
 
 ## Project Structure
 ```
 src/
- ├── app.ts
- ├── server.ts
- ├── routes/
+ ├── app.ts                    # Express app configuration
+ ├── server.ts                 # Server entry point
+ ├── constants/                # App-wide constants
+ ├── middlewares/              # Auth & role-based access control
+ ├── routes/                   # Main route registry
  ├── modules/
- │   └── auth/
- ├── middleware/
- ├── lib/
- │   └── prisma.ts
- ├── utils/
- │   └── jwt.ts
- └── types/
+ │   ├── auth/                 # Authentication & login
+ │   ├── ai/                   # AI document extraction
+ │   ├── clients/              # Client management
+ │   ├── workers/              # Worker management
+ │   └── vehicles/             # Vehicle management
+ ├── lib/                      # External integrations (Prisma, JWT)
+ └── utils/                    # Helper functions
 
-The backend includes Prisma ORM files to be able to run it local easily. 
-Although the DB is conceptually a separate architectural layer, the configuration is managed from the backend for project simplicity.
 prisma/
- ├── schema.prisma
- ├── migrations/
- └── seed.ts
+ ├── schema.prisma             # Database schema
+ ├── migrations/               # Database migrations
+ └── seed.ts                   # Initial data seeding
 
-.env
+uploads/                       # Document file storage
 ```
 ---
 
@@ -48,15 +62,43 @@ prisma/
 
 The project uses PostgreSQL with Prisma ORM.
 
-Main tables:
-- users
-- roles
-...WIP
+**Main tables:**
+- `roles` - User role definitions (Admin, Worker, External)
+- `users` - System users with authentication credentials
+- `clients` - Client companies that hire workers
+- `workers` - Workers with personal and contract information
+- `vehicles` - Company vehicles fleet
+- `worker_vehicle_assignments` - Historical tracking of worker-vehicle assignments
+- `document_types` - Document type definitions by entity (Worker, Vehicle, Client)
+- `documents` - Uploaded document files with metadata
+- `entity_documents` - Polymorphic relation linking documents to entities
 
-Relationships:
-- A user belongs to a role
-- A role can have many users
-...WIP
+**Key relationships:**
+- A `user` belongs to one `role`; a `role` can have many `users`
+- A `user` can optionally be linked to a `worker` or `client` (1:1)
+- A `worker` belongs to one `client`; a `client` can have many `workers`
+- A `worker` can be assigned to a `vehicle` (current assignment)
+- `worker_vehicle_assignments` tracks historical assignments between workers and vehicles
+- A `document` has a `document_type` and can be linked to multiple entities through `entity_documents`
+
+---
+
+## AI Document Extraction
+
+The backend includes AI-powered document data extraction capabilities for workers, vehicles, and clients.
+
+**Provider:** Google Gemini (default)
+- The architecture supports multiple AI providers for future extensibility
+- Currently integrated with Gemini 2.5 Flash model
+
+**Configuration:**
+- Requires `GEMINI_API_KEY` in environment variables
+- Optional: `GEMINI_MODEL` to specify a different model (defaults to gemini-2.5-flash)
+
+**Functionality:**
+- Extracts structured data from uploaded documents (PDFs, images)
+- Supports entity-specific field extraction
+- Normalizes dates, handles multiple documents per request
 
 ---
 
@@ -66,70 +108,92 @@ Relationships:
 Install:
 - Node.js >= 24
 - npm
-- PostgreSQL (UI PgAdmin4)
+- PostgreSQL (with PgAdmin4 recommended)
 - Git
 
 Check versions:
-- node -v
-- npm -v
-- psql --version
+```bash
+node -v
+npm -v
+psql --version
+```
 
 ---
 
 ### Clone repository
+```bash
 git clone https://github.com/Sergio18rg/docufast-backend
-
 cd docufast-backend
+```
 
 ---
 
 ### Install dependencies
+```bash
 npm install
+```
 
 ---
 
 ### Environment variables
-Create a .env file in the root:
+Create a `.env` file in the root directory:
 
+```env
 PORT=4000
-
 DATABASE_URL="postgresql://DB_USER@localhost:5432/docufast_db"
-
-JWT_SECRET="your_super_secret_key"
-
+JWT_SECRET="your_super_secret_key_here"
 FRONTEND_URL=http://localhost:3000
+GEMINI_API_KEY="your_gemini_api_key_here"
+GEMINI_MODEL="gemini-2.5-flash"  # optional
+```
+
+**Important:**
+- Replace `DB_USER` with your PostgreSQL username (e.g., `postgres` or your custom user)
+- Generate a strong random string for `JWT_SECRET`
+- Get your `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/app/apikey)
+- AI functionality requires a valid Gemini API key; other features work without it
 
 ---
 
 ### Database Setup
 
-Install PostgreSQL and create database:
-
+1. **Create database:**
+```bash
 createdb docufast_db
+```
 
-Run migrations:
-- npx prisma migrate dev
+2. **Run migrations:**
+```bash
+npx prisma migrate dev
+```
 
-Generate Prisma client:
-- npx prisma generate
+3. **Generate Prisma client:**
+```bash
+npx prisma generate
+```
 
-Seed database:
-- npm run seed
+4. **Seed initial data:**
+```bash
+npm run seed
+```
 
-Reset if needed:
-- npx prisma migrate reset
-
+**Reset database if needed:**
+```bash
+npx prisma migrate reset
+```
 
 ---
 
 ### Run backend
+```bash
 npm run dev
+```
 
-Server will run on:
-http://localhost:4000
+Server will run on: **http://localhost:4000**
 
-Health check:
-http://localhost:4000/api/health
+Health check endpoint: **http://localhost:4000/api/health**
+
+**Note:** The `uploads/` directory for document storage will be created automatically on first file upload.
 
 
 ---
@@ -145,9 +209,11 @@ http://localhost:4000/api/health
 ---
 
 ## Available Scripts
-- npm run dev
-- npm run start
-- npm run seed
+```bash
+npm run dev    # Start development server with hot reload
+npm run start  # Start production server
+npm run seed   # Seed database with initial data
+```
 
 ---
 
