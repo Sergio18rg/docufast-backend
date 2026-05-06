@@ -1,5 +1,3 @@
-import { ExtractableEntityType } from "./types";
-
 const ENTITY_TYPES = {
   WORKER: "Worker",
   VEHICLE: "Vehicle",

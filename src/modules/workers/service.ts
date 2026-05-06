@@ -33,8 +33,6 @@ import {
 } from "../../constants";
 import { SortOrder } from "../../generated/prisma/internal/prismaNamespace";
 
-// What is included when fetching workers from the database
-// (we also send the client and current vehicle data)
 const workerInclude = {
   client: true,
   current_vehicle: true,
@@ -325,7 +323,6 @@ const syncWorkerDocuments = async (
       additionalDocumentConfig: ADDITIONAL_DOCUMENT_CONFIG,
     });
 
-    // If the document exists, we update it
     if (
       document.worker_document_id &&
       currentByEntityDocumentId.has(document.worker_document_id)
@@ -348,9 +345,6 @@ const syncWorkerDocuments = async (
       });
       continue;
     }
-    // if the document does not exist, but it is identified by document_key then we update the existing document with the new data,
-    // this allows to keep the same document if the user just wants to update the info without uploading a new file,
-    // and also allows to upload a file for a predefined document that was not uploaded before
     const isDocumentKeyExisting = currentByDocumentKey.has(
       document.document_key,
     );
@@ -647,10 +641,6 @@ const uploadDocumentFile = async ({
     additionalDocumentConfig: ADDITIONAL_DOCUMENT_CONFIG,
   });
 
-  // if replaceDocumentId search the doc and update it, if not, search by document key,
-  // if is found, we update it, if not the document is created new, this allows to cover
-  // the case when the user upload a document for a predefined document that was not
-  // uploaded before, so it does not have an entity_document_id but it has the document_key
   const existing = replaceDocumentId
     ? await prisma.entityDocument.findFirst({
         where: {
@@ -695,7 +685,6 @@ const uploadDocumentFile = async ({
     return existing;
   }
 
-  // if document exists and has a file we inactivate them before creating a new one
   if (existing) {
     await prisma.entityDocument.update({
       where: { entity_document_id: existing.entity_document_id },

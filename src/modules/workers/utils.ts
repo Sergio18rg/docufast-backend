@@ -70,17 +70,9 @@ const toExternalClientsWorkerDtos = (worker: any) => {
   };
 };
 
-const buildDocumentDto = (entityDocument: any) =>
-  buildGenericDocumentDto(
-    entityDocument,
-    "worker_document_id",
-    getDocumentStatus,
-  );
-
 export {
   getWorkerFullName,
   buildTemporaryPassword,
   filterExternalWorkerDocuments,
   toExternalClientsWorkerDtos,
-  buildDocumentDto,
 };
