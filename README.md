@@ -203,8 +203,10 @@ Health check endpoint: **http://localhost:4000/api/health**
 | Role | Email | Password |
 |------|------|----------|
 | Administrator | admin@docufast.com | Admin1234! |
-| Worker | worker@docufast.com | Worker1234! |
+| Worker | laura.gomez@docufast.com | Laura1234 |
 | External | external@docufast.com | External1234! |
+
+**Note:** Additional worker accounts are created during seeding (Carlos, Ana, Miguel). Worker passwords follow the pattern: `{FirstName}1234`.
 
 ---
 
