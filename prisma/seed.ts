@@ -231,8 +231,8 @@ const main = async () => {
     address: string;
     emergencyContactName: string;
     emergencyContactPhone: string;
-    clientId: number;
-    vehicleId: number;
+    clientId: number | null;
+    vehicleId: number | null;
     contractStartDate: Date;
     contractEndDate: Date;
     notes?: string;
@@ -300,14 +300,16 @@ const main = async () => {
       data: { status: "Inactive", end_datetime: new Date() },
     });
 
-    await prisma.workerVehicleAssignment.create({
-      data: {
-        worker_id: worker.worker_id,
-        vehicle_id: workerData.vehicleId,
-        start_datetime: workerData.contractStartDate,
-        status: "Active",
-      },
-    });
+    if (workerData.vehicleId !== null) {
+      await prisma.workerVehicleAssignment.create({
+        data: {
+          worker_id: worker.worker_id,
+          vehicle_id: workerData.vehicleId,
+          start_datetime: workerData.contractStartDate,
+          status: "Active",
+        },
+      });
+    }
 
     return worker;
   };
@@ -336,6 +338,26 @@ const main = async () => {
 
   // Create workers
   const workersData = [
+    {
+      code: "ADM-0001",
+      firstName: "Juan",
+      lastName1: "Admin",
+      lastName2: "Admin",
+      email: "admin@docufast.com",
+      phone: "+34 604 040 020",
+      documentNumber: "18392834A",
+      socialSecurityNumber: "28/0000000000",
+      birthDate: new Date("1990-01-01"),
+      address: "DocuFast headquarters",
+      emergencyContactName: "DocuFast Support",
+      emergencyContactPhone: "+34 600 000 001",
+      clientId: null,
+      vehicleId: null,
+      contractStartDate: new Date("2025-01-01"),
+      contractEndDate: new Date("2026-12-31"),
+      notes: "Seed profile data for the administrator test user.",
+      withDocuments: false,
+    },
     {
       code: "WK-0001",
       firstName: "Laura",
